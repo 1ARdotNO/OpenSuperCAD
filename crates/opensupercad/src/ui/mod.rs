@@ -4,6 +4,7 @@ mod agent_panel;
 mod customizer;
 mod git_panel;
 mod preview;
+mod settings_panel;
 mod workspace;
 
 use std::path::PathBuf;

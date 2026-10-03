@@ -69,6 +69,11 @@ impl Preview {
         }
     }
 
+    /// Swap the OpenSCAD configuration (e.g. a different backend).
+    pub fn set_engine(&mut self, engine: Option<Arc<Engine>>) {
+        self.engine = engine;
+    }
+
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.mesh = None;
         self.frame = None;

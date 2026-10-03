@@ -26,6 +26,7 @@ use super::agent_panel::{AgentPanel, AgentPanelEvent};
 use super::customizer::{Customizer, CustomizerEvent};
 use super::git_panel::{GitEvent, GitPanel};
 use super::preview::{Preview, PreviewEvent};
+use super::settings_panel::{SettingsEvent, SettingsPanel};
 use super::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -33,6 +34,7 @@ enum LeftTab {
     Files,
     Outline,
     Git,
+    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -45,6 +47,10 @@ pub struct Workspace {
     focus: FocusHandle,
     store: Store,
     engine: Option<Arc<Engine>>,
+    /// The discovered OpenSCAD before per-project settings are applied.
+    base_engine: Option<Engine>,
+    registry: osc_agent::Registry,
+    settings: Entity<SettingsPanel>,
     openscad_version: Option<String>,
     project: Option<Project>,
     recent: Vec<RecentProject>,
@@ -92,7 +98,8 @@ impl Workspace {
         let file_tree = cx.new(|cx| TreeState::new(cx));
         let preview = cx.new(|_| Preview::new(engine.clone()));
         let customizer = cx.new(|_| Customizer::default());
-        let agent = cx.new(|cx| AgentPanel::new(store.clone(), registry, window, cx));
+        let agent = cx.new(|cx| AgentPanel::new(store.clone(), registry.clone(), window, cx));
+        let settings = cx.new(|_| SettingsPanel::new());
         let git = cx.new(|cx| GitPanel::new(window, cx));
 
         let subs = vec![
@@ -127,6 +134,27 @@ impl Workspace {
                     AgentPanelEvent::RestoreCheckpoint(id) => {
                         let id = id.clone();
                         this.git.update(cx, |g, cx| g.restore(&id, cx));
+                    }
+                },
+            ),
+            cx.subscribe_in(
+                &settings,
+                window,
+                |this, _, ev: &SettingsEvent, window, cx| {
+                    let SettingsEvent::Changed(settings) = ev;
+                    if let Some(project) = &this.project
+                        && let Err(e) = project.save_settings(settings)
+                    {
+                        window.push_notification(
+                            Notification::error(format!("Saving settings failed: {e}")),
+                            cx,
+                        );
+                    }
+                    let backend_changed = this.engine.as_ref().map(|e| e.backend.clone())
+                        != Some(settings.openscad_backend.clone());
+                    this.apply_backend(settings.openscad_backend.clone(), cx);
+                    if backend_changed {
+                        this.render(cx);
                     }
                 },
             ),
@@ -178,7 +206,10 @@ impl Workspace {
             focus: cx.focus_handle(),
             recent: store.recent_projects(),
             store,
+            base_engine: engine.as_deref().cloned(),
             engine,
+            registry,
+            settings,
             openscad_version,
             project: None,
             files: Vec::new(),
@@ -253,6 +284,12 @@ impl Workspace {
         self.preview.update(cx, |p, cx| p.clear(cx));
         self.refresh_files(cx);
         self.git.update(cx, |g, cx| g.set_project(Some(&root), cx));
+        self.apply_backend(settings.openscad_backend.clone(), cx);
+        let registry = self.registry.clone();
+        let project = self.project.clone();
+        self.settings.update(cx, |s, cx| {
+            s.set_project(project.as_ref(), &registry, window, cx)
+        });
         let last_thread = recent.as_ref().and_then(|r| r.last_thread.clone());
         self.agent.update(cx, |a, cx| {
             a.set_project(
@@ -287,6 +324,18 @@ impl Workspace {
         }
         window.set_window_title(&format!("{name} · OpenSuperCAD"));
         cx.notify();
+    }
+
+    /// Use the project's OpenSCAD backend for rendering and exports.
+    fn apply_backend(&mut self, backend: Option<String>, cx: &mut Context<Self>) {
+        let Some(base) = &self.base_engine else {
+            return;
+        };
+        let mut engine = base.clone();
+        engine.backend = backend;
+        let engine = Some(Arc::new(engine));
+        self.engine = engine.clone();
+        self.preview.update(cx, |p, _| p.set_engine(engine));
     }
 
     fn refresh_files(&mut self, cx: &mut Context<Self>) {
@@ -731,14 +780,17 @@ impl Workspace {
                 LeftTab::Files => 0,
                 LeftTab::Outline => 1,
                 LeftTab::Git => 2,
+                LeftTab::Settings => 3,
             })
             .child(Tab::new().label("Files"))
             .child(Tab::new().label("Outline"))
             .child(Tab::new().label("Git"))
+            .child(Tab::new().label("Settings"))
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 this.left_tab = match ix {
                     1 => LeftTab::Outline,
                     2 => LeftTab::Git,
+                    3 => LeftTab::Settings,
                     _ => LeftTab::Files,
                 };
                 cx.notify();
@@ -848,6 +900,7 @@ impl Workspace {
                     .into_any_element()
             }
             LeftTab::Git => self.git.clone().into_any_element(),
+            LeftTab::Settings => self.settings.clone().into_any_element(),
         };
         v_flex()
             .size_full()

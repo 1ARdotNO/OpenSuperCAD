@@ -48,11 +48,17 @@ remembered per project, so you can come back to a conversation later.
 
 The **main file** is what gets previewed and what the agent works on by
 default: `main.scad` if present, otherwise the first `.scad` file. Change it
-in the project settings.
+in the **Settings** tab.
 
 ### Project settings
 
-Optional, and committable: `<project>/.opensupercad/settings.json`
+Open the **Settings** tab in the project panel to choose the main file, the
+default agent, whether to checkpoint after each AI turn, and the OpenSCAD
+geometry backend (Manifold is much faster on OpenSCAD 2024+). The tab also
+toggles the theme and opens `agents.json`.
+
+Settings are stored in `<project>/.opensupercad/settings.json`, which you can
+commit to share them:
 
 ```json
 {
