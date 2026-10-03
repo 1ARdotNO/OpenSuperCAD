@@ -1,0 +1,17 @@
+[package]
+name = "osc-git"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Git integration for OpenSuperCAD: status, commits and AI iteration checkpoints"
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

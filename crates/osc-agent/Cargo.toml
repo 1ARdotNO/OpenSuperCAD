@@ -1,0 +1,20 @@
+[package]
+name = "osc-agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Agent Client Protocol (ACP) client and agent registry for OpenSuperCAD"
+
+[dependencies]
+acp = { package = "agent-client-protocol-schema", version = "1.9.1", default-features = false }
+async-channel = "2"
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

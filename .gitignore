@@ -1,0 +1,16 @@
+/target/
+**/*.rs.bk
+*.log
+.DS_Store
+.env
+
+# MegaLinter / scanner reports
+megalinter-reports/
+trivy-results.sarif
+*.sarif
+
+# packaging output
+/dist/
+/packaging/arch/pkg/
+/packaging/arch/src/
+*.pkg.tar.zst

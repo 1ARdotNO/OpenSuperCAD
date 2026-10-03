@@ -1,0 +1,20 @@
+[package]
+name = "osc-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "OpenSCAD backend for OpenSuperCAD: rendering, export, snapshots and meshes"
+
+[dependencies]
+osc-syntax.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+png = "0.18"
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

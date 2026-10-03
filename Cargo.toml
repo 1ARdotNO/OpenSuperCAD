@@ -1,0 +1,46 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = [
+  "crates/osc-syntax",
+  "crates/osc-engine",
+  "crates/osc-project",
+  "crates/osc-git",
+  "crates/osc-agent",
+  "crates/osc-mcp",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/1ARdotNO/OpenSuperCAD"
+homepage = "https://github.com/1ARdotNO/OpenSuperCAD"
+authors = ["OpenSuperCAD contributors"]
+
+[workspace.dependencies]
+osc-syntax = { path = "crates/osc-syntax" }
+osc-engine = { path = "crates/osc-engine" }
+osc-project = { path = "crates/osc-project" }
+osc-git = { path = "crates/osc-git" }
+osc-agent = { path = "crates/osc-agent" }
+osc-mcp = { path = "crates/osc-mcp" }
+
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,19 @@
+[package]
+name = "osc-project"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Projects, recent-project list, settings and per-project agent threads for OpenSuperCAD"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+dirs = "6"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

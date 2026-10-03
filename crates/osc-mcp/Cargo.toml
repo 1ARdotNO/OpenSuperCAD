@@ -1,0 +1,26 @@
+[package]
+name = "osc-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Built-in MCP server that lets AI agents operate OpenSuperCAD"
+
+[[bin]]
+name = "opensupercad-mcp"
+path = "src/main.rs"
+
+[dependencies]
+osc-syntax.workspace = true
+osc-engine.workspace = true
+osc-project.workspace = true
+osc-git.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+base64 = "0.22"
+tempfile.workspace = true
+
+[lints]
+workspace = true
