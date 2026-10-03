@@ -1,0 +1,28 @@
+name: MegaLinter
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: megalinter-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  megalinter:
+    name: MegaLinter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: MegaLinter
+        uses: oxsecurity/megalinter/flavors/rust@9949bad031045f366be2467e00e8371a7328a2e2 # v10
+        env:
+          VALIDATE_ALL_CODEBASE: ${{ github.event_name != 'pull_request' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

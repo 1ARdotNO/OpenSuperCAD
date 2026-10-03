@@ -1,0 +1,26 @@
+# Binary package built by release CI from the x86_64 Linux release tarball.
+# @VERSION@ and @TARBALL@ are substituted by .github/workflows/release.yml.
+pkgname=opensupercad
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="AI-powered, Zed-style editor for OpenSCAD"
+arch=('x86_64')
+url="https://github.com/1ARdotNO/OpenSuperCAD"
+license=('MIT OR Apache-2.0')
+depends=('gcc-libs' 'glibc' 'git' 'libxkbcommon' 'libxkbcommon-x11' 'wayland' 'vulkan-icd-loader' 'fontconfig' 'freetype2' 'libxcb' 'alsa-lib' 'zstd')
+optdepends=('openscad: rendering, export and snapshots (strongly recommended)'
+            'xorg-server-xvfb: headless snapshots without a display'
+            'nodejs: run the Claude Code and Codex ACP adapters via npx')
+options=('!strip' '!debug')
+source=("@TARBALL@")
+sha256sums=('SKIP')
+
+package() {
+  cd "opensupercad-$pkgver-x86_64-linux"
+  install -Dm755 opensupercad "$pkgdir/usr/bin/opensupercad"
+  install -Dm755 opensupercad-mcp "$pkgdir/usr/bin/opensupercad-mcp"
+  install -Dm644 opensupercad.desktop "$pkgdir/usr/share/applications/opensupercad.desktop"
+  install -Dm644 opensupercad.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/opensupercad.svg"
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+}

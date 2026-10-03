@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest an idea, such as an MCP tool, a UI feature, an agent integration or an OpenSCAD option.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to design or do that OpenSuperCAD can't do yet?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: false

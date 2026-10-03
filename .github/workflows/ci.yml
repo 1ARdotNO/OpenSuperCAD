@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # System libraries GPUI needs to build on Linux.
+  GPUI_LINUX_DEPS: >-
+    pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev
+    libx11-dev libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev
+    libfontconfig-dev libfreetype-dev libasound2-dev libzstd-dev
+
+jobs:
+  # Core crates: everything except the GUI. Integration tests run against a
+  # real OpenSCAD (headless via xvfb).
+  core:
+    name: core (fmt, clippy, test)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: core
+      - name: Install OpenSCAD (integration tests)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends openscad xvfb xauth
+      - name: Format
+        run: cargo fmt --all --check
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked --workspace --exclude opensupercad --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked --workspace --exclude opensupercad
+      - name: MCP smoke test (stdio handshake)
+        run: |
+          cargo build --locked -p osc-mcp
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | ./target/debug/opensupercad-mcp --project examples/phone-stand | tee mcp.out
+          grep -q '"snapshot"' mcp.out
+
+  # The GPUI application, on both target platforms.
+  app:
+    name: app (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: app
+      - name: System libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $GPUI_LINUX_DEPS
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked -p opensupercad --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked -p opensupercad
+      - name: Build
+        run: cargo build --locked -p opensupercad
+
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check advisories bans licenses sources
+
+  dependency-review:
+    name: dependency-review
+    runs-on: ubuntu-24.04
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+
+  # Single required status check for branch protection / automerge: it is
+  # green only when every gate above passed (skipped counts as passed only for
+  # dependency-review, which runs on PRs alone).
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [core, app, deny, dependency-review]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: All gates passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) echo "::error::a required job did not succeed ($r)"; exit 1 ;; esac
+          done

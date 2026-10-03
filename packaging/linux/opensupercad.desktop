@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=OpenSuperCAD
+GenericName=AI-powered OpenSCAD editor
+Comment=Design parametric 3D models in OpenSCAD with an AI agent
+Exec=opensupercad %F
+Icon=opensupercad
+Terminal=false
+Categories=Graphics;3DGraphics;Engineering;Development;
+MimeType=application/x-openscad;
+Keywords=CAD;OpenSCAD;3D;AI;parametric;
+StartupWMClass=opensupercad
