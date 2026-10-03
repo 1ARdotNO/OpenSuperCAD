@@ -18,8 +18,11 @@ editor.
 
 - **Project panel** (left): file tree, outline of the open file, and git
   (changes, commit, checkpoints).
-- **Editor** (center): OpenSCAD source with tree-sitter highlighting and line
-  numbers. OpenSCAD errors and warnings are underlined in the editor and
+- **Editor** (center): tabs for every open file (a dot marks unsaved edits)
+  and OpenSCAD source with tree-sitter highlighting and line numbers. While
+  you edit a library that the main file pulls in with `use`/`include`, the
+  preview and the customizer stay on the main file, so you see the change
+  in context. OpenSCAD errors and warnings are underlined in the editor and
   listed in the console. Click a console entry to jump to its line.
 - **Preview**: the rendered model. Drag to orbit, Shift-drag to pan, scroll
   to zoom. The buttons switch between OpenSCAD's view presets and toggle
@@ -165,6 +168,8 @@ If a project is not a git repository yet, the first checkpoint runs
 | `Ctrl-O` | Open folder (project) |
 | `Ctrl-N` | New `.scad` file |
 | `Ctrl-S` | Save |
+| `Ctrl-W` | Close tab (saves it first) |
+| `Ctrl-Tab` / `Ctrl-Shift-Tab` | Next / previous tab |
 | `Ctrl-B` | Toggle project panel |
 | `Ctrl-J` | Toggle customizer / console |
 | `Ctrl-?` | Toggle agent panel |

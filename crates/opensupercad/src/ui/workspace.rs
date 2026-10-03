@@ -57,9 +57,15 @@ pub struct Workspace {
     files: Vec<String>,
     file_tree: Entity<TreeState>,
     open_file: Option<PathBuf>,
+    /// The active tab's editor (a blank editor when no file is open). The
+    /// active tab's `dirty`/`disk_mtime` live in the fields below and are
+    /// stashed back into `tabs` when switching.
     editor: Entity<EditorState>,
+    blank_editor: Entity<EditorState>,
     dirty: bool,
     disk_mtime: Option<SystemTime>,
+    tabs: Vec<OpenTab>,
+    active_tab: Option<usize>,
     diagnostics: Vec<Diagnostic>,
     preview: Entity<Preview>,
     customizer: Entity<Customizer>,
@@ -223,9 +229,12 @@ impl Workspace {
             files: Vec::new(),
             file_tree,
             open_file: None,
+            blank_editor: editor.clone(),
             editor,
             dirty: false,
             disk_mtime: None,
+            tabs: Vec::new(),
+            active_tab: None,
             diagnostics: Vec::new(),
             preview,
             customizer,
@@ -273,9 +282,8 @@ impl Workspace {
                 return;
             }
         };
-        if self.dirty {
-            self.save(window, cx);
-        }
+        self.save_all(window, cx);
+        self.close_all_tabs(window, cx);
         // Remember which thread was active in the project we are leaving.
         if let Some(old) = &self.project {
             let thread = self.agent.read(cx).current_thread_id();
@@ -358,9 +366,11 @@ impl Workspace {
         cx.notify();
     }
 
+    /// Open a file in a tab (or switch to its existing tab).
     fn open_file(&mut self, path: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        if self.dirty {
-            self.save(window, cx);
+        if let Some(ix) = self.tabs.iter().position(|t| t.path == path) {
+            self.activate_tab(ix, window, cx);
+            return;
         }
         let text = match std::fs::read_to_string(path) {
             Ok(t) => t,
@@ -370,21 +380,157 @@ impl Workspace {
                 return;
             }
         };
-        self.open_file = Some(path.to_path_buf());
-        self.disk_mtime = mtime(path);
-        self.dirty = false;
-        self.diagnostics.clear();
-        self.editor
-            .update(cx, |e, cx| e.set_value(text.clone(), window, cx));
-        self.sync_customizer(&text, window, cx);
+        let language = match path.extension().and_then(|e| e.to_str()) {
+            Some("scad") => "openscad",
+            Some("json") => "json",
+            _ => "plain",
+        };
+        let editor = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language(language)
+                .line_number(true)
+                .soft_wrap(language == "plain")
+                .default_value(text)
+        });
+        let sub = cx.subscribe_in(&editor, window, Self::on_editor_event);
+        self.tabs.push(OpenTab {
+            path: path.to_path_buf(),
+            editor,
+            dirty: false,
+            disk_mtime: mtime(path),
+            _sub: sub,
+        });
+        self.activate_tab(self.tabs.len() - 1, window, cx);
+    }
+
+    /// Write the active tab's state back into `tabs`.
+    fn stash_active(&mut self) {
+        if let Some(tab) = self.active_tab.and_then(|ix| self.tabs.get_mut(ix)) {
+            tab.dirty = self.dirty;
+            tab.disk_mtime = self.disk_mtime;
+        }
+    }
+
+    fn activate_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get(ix) else { return };
+        let (path, editor, dirty, disk_mtime) = (
+            tab.path.clone(),
+            tab.editor.clone(),
+            tab.dirty,
+            tab.disk_mtime,
+        );
+        let previous_target = self.render_target();
+        self.stash_active();
+        self.active_tab = Some(ix);
+        self.editor = editor;
+        self.open_file = Some(path.clone());
+        self.dirty = dirty;
+        self.disk_mtime = disk_mtime;
+        self.refresh_customizer(window, cx);
         if let Some(project) = &self.project {
-            let rel = project.relative(path);
+            let rel = project.relative(&path);
             let _ = self.store.remember(project.root(), Some(&rel), None);
         }
-        if is_scad(path) {
+        self.check_disk(window, cx);
+        // Only re-render when the rendered file actually changes.
+        if self.render_target() != previous_target {
+            self.diagnostics.clear();
             self.render(cx);
         }
+        self.apply_editor_diagnostics(cx);
         cx.notify();
+    }
+
+    /// Close a tab, saving it first if it has unsaved edits.
+    fn close_tab(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix >= self.tabs.len() {
+            return;
+        }
+        if Some(ix) == self.active_tab {
+            if self.dirty {
+                self.save(window, cx);
+            }
+        } else if self.tabs[ix].dirty {
+            let text = self.tabs[ix].editor.read(cx).value().to_string();
+            let _ = std::fs::write(&self.tabs[ix].path, text);
+        }
+        self.stash_active();
+        self.tabs.remove(ix);
+        match self.active_tab {
+            Some(active) if active == ix => {
+                self.active_tab = None;
+                if self.tabs.is_empty() {
+                    self.show_blank(window, cx);
+                } else {
+                    self.activate_tab(ix.min(self.tabs.len() - 1), window, cx);
+                }
+            }
+            Some(active) if active > ix => self.active_tab = Some(active - 1),
+            _ => {}
+        }
+        cx.notify();
+    }
+
+    fn close_all_tabs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.tabs.clear();
+        self.active_tab = None;
+        self.show_blank(window, cx);
+    }
+
+    fn show_blank(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.editor = self.blank_editor.clone();
+        self.open_file = None;
+        self.dirty = false;
+        self.disk_mtime = None;
+        self.customizer
+            .update(cx, |c, cx| c.sync(Vec::new(), window, cx));
+    }
+
+    fn cycle_tab(&mut self, delta: isize, window: &mut Window, cx: &mut Context<Self>) {
+        let (Some(active), n) = (self.active_tab, self.tabs.len()) else {
+            return;
+        };
+        if n > 1 {
+            let next = (active as isize + delta).rem_euclid(n as isize) as usize;
+            self.activate_tab(next, window, cx);
+        }
+    }
+
+    /// Save every tab with unsaved edits.
+    fn save_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dirty {
+            self.save(window, cx);
+        }
+        for tab in &mut self.tabs {
+            if tab.dirty {
+                let text = tab.editor.read(cx).value().to_string();
+                if std::fs::write(&tab.path, text).is_ok() {
+                    tab.dirty = false;
+                    tab.disk_mtime = mtime(&tab.path);
+                }
+            }
+        }
+    }
+
+    /// The file the preview shows: the active file, unless it is a library
+    /// pulled in by the project's main file (`use`/`include`), in which case
+    /// the main file is rendered so the change is seen in context.
+    fn render_target(&self) -> Option<PathBuf> {
+        let active = self.open_file.clone().filter(|f| is_scad(f))?;
+        let project = self.project.as_ref()?;
+        let main = project.main_file().map(|m| project.root().join(m))?;
+        if main == active {
+            return Some(active);
+        }
+        let main_src = std::fs::read_to_string(&main).unwrap_or_default();
+        let rel = project.relative(&active);
+        let name = active.file_name()?.to_string_lossy().into_owned();
+        let referenced = main_src.lines().any(|l| {
+            let l = l.trim_start();
+            (l.starts_with("use") || l.starts_with("include"))
+                && (l.contains(&rel) || l.contains(&name))
+        });
+        Some(if referenced { main } else { active })
     }
 
     fn current_text(&self, cx: &App) -> String {
@@ -406,6 +552,7 @@ impl Workspace {
         if is_scad(&path) {
             self.render(cx);
         }
+        self.stash_active();
         cx.notify();
     }
 
@@ -437,11 +584,35 @@ impl Workspace {
             if text != self.current_text(cx) {
                 self.editor
                     .update(cx, |e, cx| e.set_value(text.clone(), window, cx));
-                self.sync_customizer(&text, window, cx);
+                self.refresh_customizer(window, cx);
                 self.render(cx);
             }
         }
         self.git.update(cx, |g, cx| g.refresh(cx));
+    }
+
+    /// The file the customizer edits: the rendered file (see
+    /// [`Self::render_target`]), with its editor if it is open in a tab.
+    fn customizer_target(&self) -> Option<(PathBuf, Option<Entity<EditorState>>)> {
+        let target = self.render_target().or_else(|| self.open_file.clone())?;
+        let editor = if Some(&target) == self.open_file.as_ref() {
+            Some(self.editor.clone())
+        } else {
+            self.tabs
+                .iter()
+                .find(|t| t.path == target)
+                .map(|t| t.editor.clone())
+        };
+        Some((target, editor))
+    }
+
+    fn refresh_customizer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = match self.customizer_target() {
+            Some((_, Some(editor))) => editor.read(cx).value().to_string(),
+            Some((path, None)) => std::fs::read_to_string(path).unwrap_or_default(),
+            None => String::new(),
+        };
+        self.sync_customizer(&text, window, cx);
     }
 
     fn sync_customizer(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -452,15 +623,22 @@ impl Workspace {
 
     fn on_editor_event(
         &mut self,
-        _: &Entity<EditorState>,
+        editor: &Entity<EditorState>,
         ev: &InputEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if *editor != self.editor {
+            if let InputEvent::Change = ev
+                && let Some(tab) = self.tabs.iter_mut().find(|t| t.editor == *editor)
+            {
+                tab.dirty = true;
+            }
+            return;
+        }
         if let InputEvent::Change = ev {
             self.dirty = true;
-            let text = self.current_text(cx);
-            self.sync_customizer(&text, window, cx);
+            self.refresh_customizer(window, cx);
             self.apply_editor_diagnostics(cx);
             cx.notify();
         }
@@ -475,18 +653,51 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let text = self.current_text(cx);
+        let Some((target, editor)) = self.customizer_target() else {
+            return;
+        };
+        let active = Some(&target) == self.open_file.as_ref();
+        let text = match &editor {
+            Some(e) => e.read(cx).value().to_string(),
+            None => std::fs::read_to_string(&target).unwrap_or_default(),
+        };
         let Ok(updated) = osc_syntax::customizer::set_parameter(&text, name, value) else {
             return;
         };
         if updated == text {
             return;
         }
+        self.param_gen += 1;
+        let generation = self.param_gen;
+        if !active {
+            // The parameters belong to the main file while a library is being
+            // edited: update it directly (and its tab, if open), then render.
+            if let Some(e) = &editor {
+                e.update(cx, |e, cx| e.set_value(updated.clone(), window, cx));
+            }
+            if std::fs::write(&target, &updated).is_ok()
+                && let Some(tab) = self.tabs.iter_mut().find(|t| t.path == target)
+            {
+                tab.dirty = false;
+                tab.disk_mtime = mtime(&target);
+            }
+            cx.spawn_in(window, async move |this, cx| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(350))
+                    .await;
+                this.update_in(cx, |this, _, cx| {
+                    if this.param_gen == generation {
+                        this.render(cx);
+                    }
+                })
+                .ok();
+            })
+            .detach();
+            return;
+        }
         self.editor
             .update(cx, |e, cx| e.replace_all(updated, window, cx));
         self.dirty = true;
-        self.param_gen += 1;
-        let generation = self.param_gen;
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(350))
@@ -543,7 +754,7 @@ impl Workspace {
     }
 
     fn render(&mut self, cx: &mut Context<Self>) {
-        if let Some(file) = self.open_file.clone().filter(|f| is_scad(f)) {
+        if let Some(file) = self.render_target() {
             self.preview.update(cx, |p, cx| p.render(&file, cx));
         }
     }
@@ -1207,22 +1418,14 @@ impl Workspace {
             .size_full()
             .child(
                 h_flex()
-                    .px_3()
+                    .pr_2()
                     .h(px(32.))
                     .gap_2()
                     .border_b_1()
                     .border_color(theme.border)
                     .bg(theme.tab_bar)
                     .text_sm()
-                    .child(
-                        Icon::new(IconName::File)
-                            .small()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(title)
-                    .when(self.dirty, |el| {
-                        el.child(div().text_color(theme.warning).child("●"))
-                    })
+                    .child(self.render_tabs(&title, cx))
                     .child(div().flex_1())
                     .child(
                         Button::new("btn-render")
@@ -1244,6 +1447,73 @@ impl Workspace {
                     .child(Editor::new(&self.editor).size_full().bordered(false)),
             )
             .into_any_element()
+    }
+
+    fn render_tabs(&self, fallback: &str, cx: &mut Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
+        if self.tabs.is_empty() {
+            return h_flex()
+                .px_3()
+                .gap_2()
+                .child(
+                    Icon::new(IconName::File)
+                        .small()
+                        .text_color(theme.muted_foreground),
+                )
+                .child(fallback.to_owned())
+                .into_any_element();
+        }
+        let mut bar = h_flex().h_full().min_w_0().overflow_x_hidden();
+        for (ix, tab) in self.tabs.iter().enumerate() {
+            let active = Some(ix) == self.active_tab;
+            let dirty = if active { self.dirty } else { tab.dirty };
+            let name = tab
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            bar = bar.child(
+                h_flex()
+                    .id(("tab", ix))
+                    .h_full()
+                    .px_3()
+                    .gap_1p5()
+                    .border_r_1()
+                    .border_color(theme.border)
+                    .cursor_pointer()
+                    .when(active, |el| {
+                        el.bg(theme.background).text_color(theme.foreground)
+                    })
+                    .when(!active, |el| {
+                        el.text_color(theme.muted_foreground)
+                            .hover(|s| s.bg(theme.list_hover))
+                    })
+                    .child(name)
+                    .child(
+                        Button::new(("close-tab", ix))
+                            .icon(if dirty {
+                                Icon::new(gpui_kit::assets::IconName::Dot)
+                            } else {
+                                Icon::new(IconName::Close)
+                            })
+                            .ghost()
+                            .xsmall()
+                            .tooltip(if dirty {
+                                "Unsaved: save and close"
+                            } else {
+                                "Close"
+                            })
+                            .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                                cx.stop_propagation();
+                                this.close_tab(ix, window, cx)
+                            })),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.activate_tab(ix, window, cx)
+                    })),
+            );
+        }
+        bar.into_any_element()
     }
 
     fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1313,9 +1583,7 @@ impl Workspace {
     ) -> ControlReply {
         match req {
             ControlRequest::SaveAll => {
-                if self.dirty {
-                    self.save(window, cx);
-                }
+                self.save_all(window, cx);
                 ControlReply::ok()
             }
             ControlRequest::Snapshot { file, images } => {
@@ -1340,6 +1608,15 @@ impl Workspace {
             }
         }
     }
+}
+
+/// A file open in the editor.
+struct OpenTab {
+    path: PathBuf,
+    editor: Entity<EditorState>,
+    dirty: bool,
+    disk_mtime: Option<SystemTime>,
+    _sub: Subscription,
 }
 
 fn mtime(path: &Path) -> Option<SystemTime> {
@@ -1464,12 +1741,19 @@ impl gpui_kit::Render for Workspace {
                 }
             }))
             .on_action(cx.listener(|this, _: &Save, window, cx| this.save(window, cx)))
+            .on_action(cx.listener(|this, _: &CloseTab, window, cx| {
+                if let Some(ix) = this.active_tab {
+                    this.close_tab(ix, window, cx);
+                }
+            }))
+            .on_action(cx.listener(|this, _: &NextTab, window, cx| this.cycle_tab(1, window, cx)))
+            .on_action(cx.listener(|this, _: &PrevTab, window, cx| this.cycle_tab(-1, window, cx)))
             .on_action(cx.listener(|this, _: &Reload, window, cx| {
+                // Drop unsaved edits of the active tab and re-read the disk.
                 this.dirty = false;
                 this.disk_mtime = None;
-                if let Some(f) = this.open_file.clone() {
-                    this.open_file(&f, window, cx);
-                }
+                this.check_disk(window, cx);
+                this.render(cx);
             }))
             .on_action(cx.listener(|this, _: &RenderDesign, window, cx| {
                 this.save(window, cx);
