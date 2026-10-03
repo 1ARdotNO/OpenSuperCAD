@@ -26,7 +26,13 @@ required: Mesa for Intel/AMD, or the proprietary NVIDIA driver.
 
 ## Arch Linux
 
-Each release ships a prebuilt package:
+From the AUR, if you use an AUR helper:
+
+```sh
+yay -S opensupercad-bin      # prebuilt; or `opensupercad` to build from source
+```
+
+Each release also ships a prebuilt package:
 
 ```sh
 curl -LO https://github.com/1ARdotNO/OpenSuperCAD/releases/latest/download/opensupercad-<version>-1-x86_64.pkg.tar.zst
@@ -44,12 +50,21 @@ makepkg -si
 
 ## macOS
 
-Download `OpenSuperCAD-<version>-macos-universal.dmg` from the latest release.
+With Homebrew:
+
+```sh
+brew install --cask 1ardotno/tap/opensupercad
+# or, from a downloaded release asset:
+brew install --cask ./opensupercad.rb
+```
+
+Or download `OpenSuperCAD-<version>-macos-universal.dmg` from the latest release.
 It is a universal app for Apple silicon and Intel. Open it and drag
 **OpenSuperCAD** to *Applications*.
 
-The app is ad-hoc signed but not notarized. The first time, right-click the
-app and choose **Open**, or run:
+Notarized builds open normally. If a build is only ad-hoc signed (when the
+project's signing credentials aren't configured), right-click the app the
+first time and choose **Open**, or run:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/OpenSuperCAD.app

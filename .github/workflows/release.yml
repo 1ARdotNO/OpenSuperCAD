@@ -8,6 +8,14 @@
 #   Linux   x86_64 + aarch64 tarballs and .deb (Debian/Ubuntu)
 #   Arch    x86_64 .pkg.tar.zst (plus packaging/arch/PKGBUILD for the AUR)
 #   macOS   universal (arm64 + x86_64) .dmg and tarball
+#   Homebrew cask (opensupercad.rb asset; pushed to a tap if configured)
+#
+# Optional repository secrets/variables enable more distribution channels;
+# each step is skipped when its secrets are absent (see docs/releasing.md):
+#   MACOS_CERTIFICATE (base64 .p12), MACOS_CERTIFICATE_PASSWORD,
+#   MACOS_SIGN_IDENTITY, APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD
+#   HOMEBREW_TAP_TOKEN + variable HOMEBREW_TAP (e.g. 1ARdotNO/homebrew-tap)
+#   AUR_SSH_PRIVATE_KEY
 name: Release
 
 on:
@@ -164,7 +172,28 @@ jobs:
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
             cargo build --release --target "$target" -p opensupercad -p osc-mcp
           done
-      - name: Bundle .app and .dmg
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+      - name: Bundle .app and .dmg (signed and notarized when configured)
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           mkdir -p dist
           packaging/macos/bundle.sh "$VERSION" dist
@@ -192,6 +221,15 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: src
+          persist-credentials: false
+      - name: Homebrew cask
+        run: |
+          sha=$(sha256sum "dist/OpenSuperCAD-$VERSION-macos-universal.dmg" | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha/" \
+            src/packaging/homebrew/opensupercad.rb.in > dist/opensupercad.rb
       - name: Checksums
         working-directory: dist
         run: sha256sum * > SHA256SUMS && cat SHA256SUMS
@@ -204,3 +242,53 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "OpenSuperCAD v$VERSION" \
             --generate-notes
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP: ${{ vars.HOMEBREW_TAP }}
+        if: env.HOMEBREW_TAP_TOKEN != '' && env.HOMEBREW_TAP != ''
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP}.git" tap
+          mkdir -p tap/Casks && cp dist/opensupercad.rb tap/Casks/opensupercad.rb
+          cd tap
+          git config user.name "opensupercad-release"
+          git config user.email "opensupercad-release@users.noreply.github.com"
+          git add Casks/opensupercad.rb
+          git commit -m "opensupercad $VERSION" && git push || echo "tap already up to date"
+
+  aur:
+    name: publish to AUR
+    needs: [version, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    container: archlinux:base-devel
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        with:
+          name: linux-x86_64
+          path: linux
+      - name: Push opensupercad-bin
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        run: |
+          pacman -Sy --noconfirm --needed git openssh
+          useradd -m builder
+          install -d -m700 -o builder /home/builder/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /home/builder/.ssh/aur && chmod 600 /home/builder/.ssh/aur
+          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n  StrictHostKeyChecking accept-new\n' > /home/builder/.ssh/config
+          chown -R builder /home/builder/.ssh
+          sha=$(sha256sum "linux/opensupercad-$VERSION-x86_64-linux.tar.gz" | cut -d' ' -f1)
+          su builder -c "git clone ssh://aur@aur.archlinux.org/opensupercad-bin.git /tmp/aur"
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha/" packaging/aur/opensupercad-bin/PKGBUILD.in > /tmp/aur/PKGBUILD
+          chown builder /tmp/aur/PKGBUILD
+          su builder -c "cd /tmp/aur && makepkg --printsrcinfo > .SRCINFO && git add PKGBUILD .SRCINFO \
+            && git -c user.name=opensupercad-release -c user.email=opensupercad-release@users.noreply.github.com \
+               commit -m 'opensupercad-bin $VERSION' && git push" || echo "AUR already up to date"

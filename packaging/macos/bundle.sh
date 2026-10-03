@@ -29,8 +29,17 @@ if [[ -f "$out/opensupercad.svg.png" ]]; then
 fi
 rm -rf "$iconset" "$out/opensupercad.svg.png"
 
-# Ad-hoc signature so Gatekeeper reports "unidentified developer" rather than "damaged".
-codesign --force --deep --sign - "$app"
+# Signing: Developer ID with the hardened runtime when MACOS_SIGN_IDENTITY is
+# set (release CI imports the certificate), otherwise an ad-hoc signature so
+# Gatekeeper reports "unidentified developer" rather than "damaged".
+if [[ -n "${MACOS_SIGN_IDENTITY:-}" ]]; then
+  for bin in "$app"/Contents/MacOS/*; do
+    codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$bin"
+  done
+  codesign --force --options runtime --timestamp --sign "$MACOS_SIGN_IDENTITY" "$app"
+else
+  codesign --force --deep --sign - "$app"
+fi
 
 dmg="$out/OpenSuperCAD-$version-macos-universal.dmg"
 staging="$out/dmg"
@@ -39,4 +48,14 @@ cp -R "$app" "$staging/"
 ln -s /Applications "$staging/Applications"
 hdiutil create -volname "OpenSuperCAD $version" -srcfolder "$staging" -ov -format UDZO "$dmg"
 rm -rf "$staging"
+
+if [[ -n "${MACOS_SIGN_IDENTITY:-}" ]]; then
+  codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$dmg"
+fi
+# Notarize and staple when Apple credentials are available.
+if [[ -n "${MACOS_SIGN_IDENTITY:-}" && -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_PASSWORD:-}" ]]; then
+  xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+    --password "$APPLE_APP_PASSWORD" --wait
+  xcrun stapler staple "$dmg"
+fi
 echo "$dmg"

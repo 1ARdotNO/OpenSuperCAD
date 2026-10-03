@@ -121,6 +121,7 @@ Mirrors the `1ARdotNO/wyrm` and `1ARdotNO/Jync` setups:
 ## 5. Docs
 
 User docs live in `README.md` and `docs/`: `installation.md`, `usage.md`,
-`agents.md` and `architecture.md`. Update them in the same PR as any
+`agents.md` and `architecture.md`. Maintainer docs live in `docs/releasing.md`
+(release secrets and channels). Update them in the same PR as any
 user-visible change. The agent skill lives in `crates/osc-mcp/skill/SKILL.md`.
 Keep it accurate when tools change; it is what agents read.
