@@ -2,9 +2,7 @@
 
 mod agents;
 mod doctor;
-#[allow(dead_code)] // wired into the UI in #7
 mod pipeline;
-#[allow(dead_code)] // wired into the UI in #7
 mod session;
 mod ui;
 

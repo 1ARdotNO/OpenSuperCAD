@@ -5,36 +5,38 @@
 The layout follows Zed: one window per project, with docks around a central
 editor.
 
+![OpenSuperCAD](images/screenshot.png)
+
 ```
-┌ Title bar: project ▾ · branch · agent ▾ ──────────────────────────────────────┐
-│ Project panel │ Editor (main.scad)            │ Preview (3D)    │ Agent panel  │
-│  Files        │                               │  [iso][top]...  │  Threads ▾   │
-│  Outline      │                               │ Customizer      │  messages    │
-│  Git          │                               │  width ──●──    │  tool calls  │
-│               ├───────────────────────────────┴─────────────────┤  [prompt…]   │
-│               │ Console: errors · warnings · ECHO               │              │
-└ Status bar: OpenSCAD version · render time · cursor ──────────────────────────┘
+┌ Title bar: menus · project ▾ · branch ───────────── panel toggles ┐
+│ Files │ Editor (main.scad)      │ Preview  [Iso][Top]…   │ Agent ▾ ☰ + │
+│ Outline│                        │   (drag to orbit)      │  messages   │
+│ Git   │                         ├────────────────────────┤  tool calls │
+│       │                         │ Customizer │ Console   │  [prompt…]  │
+└ Status bar: OpenSCAD version · last render · agent · cursor ──────────┘
 ```
 
 - **Project panel** (left): file tree, outline of the open file, and git
   (changes, commit, checkpoints).
 - **Editor** (center): OpenSCAD source with tree-sitter highlighting and line
-  numbers. Errors from OpenSCAD are shown in the console; click one to jump
-  to its line.
+  numbers. OpenSCAD errors and warnings are underlined in the editor and
+  listed in the console. Click a console entry to jump to its line.
 - **Preview**: the rendered model. Drag to orbit, Shift-drag to pan, scroll
   to zoom. The buttons switch between OpenSCAD's view presets.
 - **Customizer**: OpenSCAD's customizer, with the same groups, sliders,
   dropdowns, checkboxes and text fields, driven by the comments in your file.
   Changing a value edits the source in place and re-renders.
 - **Agent panel** (right): AI threads for the current project.
-- **Console** (bottom): OpenSCAD output.
+- **Console** (tab next to the customizer): OpenSCAD's errors, warnings and
+  `echo()` output. It opens automatically when a render fails.
 
 ## Projects
 
 A project is a folder, ideally a git repository. Open one with
 **File → Open Folder…** (`Ctrl/Cmd-O`), switch between recent projects
-from the project switcher in the title bar (`Ctrl/Cmd-Alt-O`), or run
-`opensupercad path/to/folder` from a terminal.
+from the project switcher in the title bar, or run
+`opensupercad path/to/folder` from a terminal. On start-up the last project
+is reopened.
 
 Switching projects switches everything: the file tree, open file, preview,
 customizer and the set of AI threads. Threads belong to a project and are
@@ -42,7 +44,7 @@ remembered per project, so you can come back to a conversation later.
 
 The **main file** is what gets previewed and what the agent works on by
 default: `main.scad` if present, otherwise the first `.scad` file. Change it
-from the file's context menu ("Set as main file") or in the project settings.
+in the project settings.
 
 ### Project settings
 
@@ -81,8 +83,8 @@ itself.
 
 | Action | Shortcut (Linux / macOS) | OpenSCAD equivalent |
 | --- | --- | --- |
-| Preview | `F5` | Design → Preview |
-| Render (full geometry) | `F6` | Design → Render |
+| Preview (OpenSCAD's own OpenCSG preview, from the current camera) | `F5` | Design → Preview |
+| Render (full geometry, shown in the interactive viewport) | `F6` | Design → Render |
 | Export STL | `F7` | File → Export → STL |
 | Export… (3MF, OFF, AMF, OBJ, DXF, SVG, PDF, PNG, CSG) | `Ctrl/Cmd-Shift-E` | File → Export |
 | Reload from disk | `Ctrl/Cmd-R` | Design → Reload and Preview |
@@ -115,8 +117,8 @@ OpenSuperCAD manages git for you, Zed-style, through the git panel in the
 project panel:
 
 - **Changes**: modified and untracked files.
-- **Commit**: write a message and commit everything (`Ctrl/Cmd-Enter` in the
-  message box).
+- **Commit**: write a message and press `Enter` (or **Commit all**) to
+  commit everything.
 - **Checkpoints**: one per AI turn, plus any you create yourself
   (`Ctrl/Cmd-Alt-S`).
 
@@ -144,11 +146,10 @@ If a project is not a git repository yet, the first checkpoint runs
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl-O` | Open folder (project) |
-| `Ctrl-Alt-O` | Recent projects |
 | `Ctrl-N` | New `.scad` file |
 | `Ctrl-S` | Save |
 | `Ctrl-B` | Toggle project panel |
-| `Ctrl-J` | Toggle console |
+| `Ctrl-J` | Toggle customizer / console |
 | `Ctrl-?` | Toggle agent panel |
 | `Ctrl-Shift-N` | New agent thread |
 | `Enter` / `Shift-Enter` | Send prompt / new line (agent panel) |

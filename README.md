@@ -23,6 +23,8 @@ back.
 - **Fast and native.** Written in Rust on GPUI, Zed's GPU-accelerated UI
   framework.
 
+![OpenSuperCAD: an agent widening a phone stand, with the customizer, live preview and checkpoint](docs/images/screenshot.png)
+
 ## Install
 
 | Platform | |
