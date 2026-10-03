@@ -18,6 +18,8 @@ pub struct JobResult {
     pub diagnostics: Vec<Diagnostic>,
     pub duration_ms: u128,
     pub mesh: Option<Mesh>,
+    /// Feature edges of `mesh`, precomputed for outlining.
+    pub edges: Option<Vec<[osc_engine::mesh::Vec3; 2]>>,
     /// PNG bytes of an OpenSCAD preview image.
     pub image: Option<Vec<u8>>,
 }
@@ -34,6 +36,7 @@ impl JobResult {
             }],
             duration_ms: 0,
             mesh: None,
+            edges: None,
             image: None,
         }
     }
@@ -52,11 +55,13 @@ pub fn render_mesh(engine: &Engine, file: &Path, scratch: &Path) -> JobResult {
         None
     };
     let _ = std::fs::remove_file(&out);
+    let edges = mesh.as_ref().map(|m| raster::feature_edges(m, 30.0));
     JobResult {
         success: result.success,
         diagnostics: result.diagnostics,
         duration_ms: result.duration_ms,
         mesh,
+        edges,
         image: None,
     }
 }
@@ -82,13 +87,14 @@ pub fn preview_image(
         diagnostics: result.diagnostics,
         duration_ms: result.duration_ms,
         mesh: None,
+        edges: None,
         image,
     }
 }
 
 /// Rasterise a mesh for the viewport and return PNG bytes.
-pub fn rasterize(mesh: &Mesh, opts: &RasterOptions) -> Vec<u8> {
-    raster::render(mesh, opts).to_png()
+pub fn rasterize(mesh: &Mesh, overlays: &raster::Overlays, opts: &RasterOptions) -> Vec<u8> {
+    raster::render_with(mesh, overlays, opts).to_png()
 }
 
 fn unique() -> String {
@@ -124,7 +130,11 @@ mod tests {
         assert!(r.success);
         let mesh = r.mesh.unwrap();
         assert_eq!(mesh.bounds().1, [10.0, 20.0, 5.0]);
-        let png = rasterize(&mesh, &RasterOptions::default());
+        let png = rasterize(
+            &mesh,
+            &raster::Overlays::default(),
+            &RasterOptions::default(),
+        );
         assert_eq!(&png[1..4], b"PNG");
 
         std::fs::write(&file, "cube(;").unwrap();

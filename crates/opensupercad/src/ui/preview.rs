@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::spinner::Spinner;
-use gpui_kit::component::{ActiveTheme, IconName, Sizable, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, IconName, Selectable, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use osc_engine::mesh::Mesh;
@@ -28,6 +28,10 @@ pub struct Preview {
     engine: Option<Arc<Engine>>,
     scratch: PathBuf,
     mesh: Option<Arc<Mesh>>,
+    edges: Arc<Vec<[osc_engine::mesh::Vec3; 2]>>,
+    show_edges: bool,
+    show_axes: bool,
+    show_grid: bool,
     /// Viewport rotation, OpenSCAD `$vpr` convention.
     rotation: [f32; 3],
     zoom: f32,
@@ -48,6 +52,10 @@ impl Preview {
             engine,
             scratch: pipeline::scratch_dir(),
             mesh: None,
+            edges: Arc::new(Vec::new()),
+            show_edges: true,
+            show_axes: true,
+            show_grid: true,
             rotation: View::Iso.rotation().map(|v| v as f32),
             zoom: 1.0,
             pan: [0.0, 0.0],
@@ -91,6 +99,7 @@ impl Preview {
                 if generation == this.render_gen {
                     if let Some(mesh) = result.mesh.clone() {
                         this.mesh = Some(Arc::new(mesh));
+                        this.edges = Arc::new(result.edges.clone().unwrap_or_default());
                         this.openscad_image = None;
                         this.rasterize(cx);
                     }
@@ -179,7 +188,16 @@ impl Preview {
             ],
             color: [0xf9, 0xd7, 0x5c],
         };
-        let job = cx.background_spawn(async move { pipeline::rasterize(&mesh, &opts) });
+        let edges = self.edges.clone();
+        let (show_edges, axes, grid) = (self.show_edges, self.show_axes, self.show_grid);
+        let job = cx.background_spawn(async move {
+            let overlays = osc_engine::raster::Overlays {
+                edges: show_edges.then_some(edges.as_slice()),
+                axes,
+                grid,
+            };
+            pipeline::rasterize(&mesh, &overlays, &opts)
+        });
         cx.spawn(async move |this, cx| {
             let png = job.await;
             this.update(cx, |this, cx| {
@@ -213,6 +231,26 @@ impl Preview {
         }
         self.openscad_image = None;
         self.rasterize(cx);
+    }
+
+    fn toggle(
+        &self,
+        id: &'static str,
+        label: &'static str,
+        on: bool,
+        field: fn(&mut Self) -> &mut bool,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        Button::new(id)
+            .label(label)
+            .ghost()
+            .xsmall()
+            .selected(on)
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let flag = field(this);
+                *flag = !*flag;
+                this.rasterize(cx);
+            }))
     }
 
     fn view_button(
@@ -274,6 +312,16 @@ impl Render for Preview {
             .child(self.view_button("v-back", "Back", View::Back, cx))
             .child(self.view_button("v-left", "Left", View::Left, cx))
             .child(self.view_button("v-right", "Right", View::Right, cx))
+            .child(div().w(px(8.)))
+            .child(self.toggle(
+                "t-edges",
+                "Edges",
+                self.show_edges,
+                |p| &mut p.show_edges,
+                cx,
+            ))
+            .child(self.toggle("t-axes", "Axes", self.show_axes, |p| &mut p.show_axes, cx))
+            .child(self.toggle("t-grid", "Grid", self.show_grid, |p| &mut p.show_grid, cx))
             .child(div().flex_1())
             .when(self.busy > 0, |el| el.child(Spinner::new().small()))
             .child(

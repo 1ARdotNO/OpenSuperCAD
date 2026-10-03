@@ -22,7 +22,10 @@ editor.
   numbers. OpenSCAD errors and warnings are underlined in the editor and
   listed in the console. Click a console entry to jump to its line.
 - **Preview**: the rendered model. Drag to orbit, Shift-drag to pan, scroll
-  to zoom. The buttons switch between OpenSCAD's view presets.
+  to zoom. The buttons switch between OpenSCAD's view presets and toggle
+  edge outlines, axes (X red, Y green, Z blue) and the build-plate grid.
+  The interactive view is single-coloured; press `F5` for OpenSCAD's own
+  preview with `color()` and `#`/`%` modifiers.
 - **Customizer**: OpenSCAD's customizer, with the same groups, sliders,
   dropdowns, checkboxes and text fields, driven by the comments in your file.
   Changing a value edits the source in place and re-renders.
