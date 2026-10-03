@@ -38,7 +38,7 @@ editor.
 
 A project is a folder, ideally a git repository. Open one with
 **File → Open Folder…** (`Ctrl/Cmd-O`), switch between recent projects
-from the project switcher in the title bar, or run
+from the project switcher in the title bar or `Ctrl/Cmd-Alt-O`, or run
 `opensupercad path/to/folder` from a terminal. On start-up the last project
 is reopened.
 
@@ -157,6 +157,9 @@ If a project is not a git repository yet, the first checkpoint runs
 
 | Shortcut | Action |
 | --- | --- |
+| `Ctrl-Shift-P` | Command palette: every command, fuzzy-searchable |
+| `Ctrl-P` | Find file in the project |
+| `Ctrl-Alt-O` | Recent projects |
 | `Ctrl-O` | Open folder (project) |
 | `Ctrl-N` | New `.scad` file |
 | `Ctrl-S` | Save |

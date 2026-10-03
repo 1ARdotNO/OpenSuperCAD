@@ -3,6 +3,7 @@
 mod agent_panel;
 mod customizer;
 mod git_panel;
+mod picker;
 mod preview;
 mod settings_panel;
 mod workspace;
@@ -21,6 +22,9 @@ actions!(
     [
         Quit,
         OpenFolder,
+        CommandPalette,
+        FindFile,
+        RecentProjects,
         NewFile,
         Save,
         Reload,
@@ -128,6 +132,9 @@ fn bind_keys(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("secondary-q", Quit, None),
         KeyBinding::new("secondary-o", OpenFolder, ws),
+        KeyBinding::new("secondary-shift-p", CommandPalette, ws),
+        KeyBinding::new("secondary-p", FindFile, ws),
+        KeyBinding::new("secondary-alt-o", RecentProjects, ws),
         KeyBinding::new("secondary-n", NewFile, ws),
         KeyBinding::new("secondary-s", Save, ws),
         KeyBinding::new("secondary-r", Reload, ws),
@@ -163,6 +170,8 @@ fn menus() -> Vec<Menu> {
         ]),
         Menu::new("File").items([
             MenuItem::action("Open Folder…", OpenFolder),
+            MenuItem::action("Recent Projects…", RecentProjects),
+            MenuItem::action("Find File…", FindFile),
             MenuItem::action("New File…", NewFile),
             MenuItem::separator(),
             MenuItem::action("Save", Save),
@@ -178,6 +187,8 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Take Checkpoint", Checkpoint),
         ]),
         Menu::new("View").items([
+            MenuItem::action("Command Palette…", CommandPalette),
+            MenuItem::separator(),
             MenuItem::action("Top", ViewTop),
             MenuItem::action("Bottom", ViewBottom),
             MenuItem::action("Left", ViewLeft),

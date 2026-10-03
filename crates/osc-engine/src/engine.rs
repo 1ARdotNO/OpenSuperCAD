@@ -178,6 +178,14 @@ impl Engine {
         }
     }
 
+    /// `--backend=…`, only for releases that understand it (2024+); older
+    /// OpenSCAD rejects unknown options and would fail every render.
+    fn backend_arg(&self) -> Option<String> {
+        let b = self.backend.as_ref()?;
+        let supported = self.year.is_none_or(|y| y >= 2024);
+        supported.then(|| format!("--backend={b}"))
+    }
+
     /// Whether this OpenSCAD exports `color()` into 3MF files (2024 and
     /// later; 2021.01 writes plain geometry).
     pub fn exports_colors(&self) -> bool {
@@ -240,8 +248,8 @@ impl Engine {
         let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
         ExportFormat::from_extension(ext)?;
         let mut extra = Vec::new();
-        if let Some(b) = &self.backend {
-            extra.push(format!("--backend={b}"));
+        if let Some(b) = self.backend_arg() {
+            extra.push(b);
         }
         self.run(req, out, &extra, &[])
     }
@@ -260,8 +268,8 @@ impl Engine {
         extra.push("--projection=perspective".into());
         if mode == RenderMode::Render {
             extra.push("--render".into());
-            if let Some(b) = &self.backend {
-                extra.push(format!("--backend={b}"));
+            if let Some(b) = self.backend_arg() {
+                extra.push(b);
             }
         }
         if let Some(scheme) = &self.colorscheme {
@@ -344,9 +352,24 @@ impl Engine {
         })?;
         let mut console = String::from_utf8_lossy(&output.stderr).into_owned();
         console.push_str(&String::from_utf8_lossy(&output.stdout));
-        let diagnostics = parse_console(&console);
+        let mut diagnostics = parse_console(&console);
         let has_errors = diagnostics.iter().any(|d| d.severity == Severity::Error);
         let success = output.status.success() && !has_errors && out.exists();
+        if !success && !has_errors {
+            // Never fail silently: say what happened even without output.
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                message: format!(
+                    "OpenSCAD did not produce {} ({})",
+                    out.file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default(),
+                    output.status
+                ),
+                file: None,
+                line: None,
+            });
+        }
         Ok(RenderOutput {
             success,
             diagnostics,
@@ -420,6 +443,16 @@ mod tests {
                 "/p/main.scad"
             ]
         );
+    }
+
+    #[test]
+    fn backend_only_for_new_releases() {
+        let mut e = Engine::new("openscad");
+        e.backend = Some("manifold".into());
+        e.year = Some(2021);
+        assert_eq!(e.backend_arg(), None);
+        e.year = Some(2026);
+        assert_eq!(e.backend_arg().as_deref(), Some("--backend=manifold"));
     }
 
     #[test]

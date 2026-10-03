@@ -570,6 +570,75 @@ impl Workspace {
         .detach();
     }
 
+    fn command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let commands = super::picker::commands();
+        let items = commands
+            .iter()
+            .map(|(label, action)| {
+                let mut item = super::picker::PickerItem::new(*label);
+                item.action = Some(action.clone());
+                item
+            })
+            .collect();
+        super::picker::open(
+            "Run a command…",
+            items,
+            move |ix, _, window, cx| {
+                if let Some((_, action)) = commands.get(ix) {
+                    window.dispatch_action(action.boxed_clone(), cx);
+                }
+            },
+            window,
+            cx,
+        );
+    }
+
+    fn find_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.project.as_ref().map(|p| p.root().to_path_buf()) else {
+            return self.recent_projects(window, cx);
+        };
+        let files = self.files.clone();
+        let items = files
+            .iter()
+            .map(|f| {
+                let name = f.rsplit('/').next().unwrap_or(f).to_owned();
+                super::picker::PickerItem::new(name).detail(f.clone())
+            })
+            .collect();
+        super::picker::open(
+            "Open a project file…",
+            items,
+            move |ix, ws, window, cx| {
+                if let Some(f) = files.get(ix) {
+                    ws.open_file(&root.join(f), window, cx);
+                }
+            },
+            window,
+            cx,
+        );
+    }
+
+    fn recent_projects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let recent = self.recent.clone();
+        let mut items: Vec<_> = recent
+            .iter()
+            .map(|r| {
+                super::picker::PickerItem::new(r.name.clone()).detail(r.root.display().to_string())
+            })
+            .collect();
+        items.push(super::picker::PickerItem::new("Open Folder…"));
+        super::picker::open(
+            "Switch project…",
+            items,
+            move |ix, ws, window, cx| match recent.get(ix) {
+                Some(r) => ws.open_path(&r.root.clone(), window, cx),
+                None => ws.open_folder(&OpenFolder, window, cx),
+            },
+            window,
+            cx,
+        );
+    }
+
     fn new_file(&mut self, _: &NewFile, window: &mut Window, cx: &mut Context<Self>) {
         let Some(root) = self.project.as_ref().map(|p| p.root().to_path_buf()) else {
             self.open_folder(&OpenFolder, window, cx);
@@ -1327,6 +1396,17 @@ impl gpui_kit::Render for Workspace {
             .key_context("Workspace")
             .track_focus(&self.focus)
             .on_action(cx.listener(Self::open_folder))
+            .on_action(
+                cx.listener(|this, _: &CommandPalette, window, cx| {
+                    this.command_palette(window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &FindFile, window, cx| this.find_file(window, cx)))
+            .on_action(
+                cx.listener(|this, _: &RecentProjects, window, cx| {
+                    this.recent_projects(window, cx)
+                }),
+            )
             .on_action(cx.listener(Self::new_file))
             .on_action(cx.listener(Self::export_stl))
             .on_action(cx.listener(Self::export_as))
