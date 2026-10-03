@@ -57,4 +57,4 @@ module lid() {
 }
 
 if (part != "lid") box();
-if (part != "box") lid();
+if (part != "box") color("SteelBlue") lid();

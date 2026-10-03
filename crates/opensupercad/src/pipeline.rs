@@ -44,13 +44,23 @@ impl JobResult {
 
 /// Export an STL and load it.
 pub fn render_mesh(engine: &Engine, file: &Path, scratch: &Path) -> JobResult {
-    let out = scratch.join(format!("render-{}.stl", unique()));
+    // Newer OpenSCAD keeps color() in 3MF; older releases get plain STL.
+    let ext = if engine.exports_colors() {
+        "3mf"
+    } else {
+        "stl"
+    };
+    let out = scratch.join(format!("render-{}.{ext}", unique()));
     let result = match engine.export(&Request::new(file), &out) {
         Ok(r) => r,
         Err(e) => return JobResult::failed(e.to_string()),
     };
     let mesh = if result.success {
-        Mesh::load_stl(&out).ok()
+        if ext == "3mf" {
+            Mesh::load_3mf(&out).ok()
+        } else {
+            Mesh::load_stl(&out).ok()
+        }
     } else {
         None
     };

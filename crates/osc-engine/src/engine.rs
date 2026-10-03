@@ -163,6 +163,8 @@ pub struct Engine {
     pub backend: Option<String>,
     /// `--colorscheme=` for snapshots.
     pub colorscheme: Option<String>,
+    /// Release year of the OpenSCAD build (e.g. 2021 for 2021.01), if known.
+    pub year: Option<u32>,
 }
 
 impl Engine {
@@ -172,7 +174,14 @@ impl Engine {
             png_wrapper: Vec::new(),
             backend: None,
             colorscheme: None,
+            year: None,
         }
+    }
+
+    /// Whether this OpenSCAD exports `color()` into 3MF files (2024 and
+    /// later; 2021.01 writes plain geometry).
+    pub fn exports_colors(&self) -> bool {
+        self.year.is_some_and(|y| y >= 2024)
     }
 
     /// Locate OpenSCAD: `$OPENSUPERCAD_OPENSCAD`, then `PATH`, then the usual
@@ -196,6 +205,7 @@ impl Engine {
             .ok_or(EngineError::NotFound)?;
         let mut engine = Engine::new(binary);
         engine.png_wrapper = default_png_wrapper();
+        engine.year = engine.version().ok().as_deref().and_then(parse_year);
         Ok(engine)
     }
 
@@ -347,6 +357,14 @@ impl Engine {
     }
 }
 
+/// `OpenSCAD version 2021.01` → 2021.
+fn parse_year(version: &str) -> Option<u32> {
+    version
+        .split(|c: char| !c.is_ascii_digit())
+        .find(|part| part.len() == 4)
+        .and_then(|y| y.parse().ok())
+}
+
 fn find_in_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
@@ -405,6 +423,16 @@ mod tests {
     }
 
     #[test]
+    fn version_year() {
+        assert_eq!(parse_year("OpenSCAD version 2021.01"), Some(2021));
+        assert_eq!(
+            parse_year("OpenSCAD version 2026.10.02 (git 1a2b)"),
+            Some(2026)
+        );
+        assert_eq!(parse_year("garbage"), None);
+    }
+
+    #[test]
     fn formats() {
         assert_eq!(
             ExportFormat::from_extension(".3MF").unwrap(),
@@ -432,6 +460,21 @@ mod tests {
         let (min, max) = mesh.bounds();
         assert!((max[0] - min[0] - 4.0).abs() < 1e-3);
         assert_eq!(out.echoes().count(), 1);
+
+        if engine.exports_colors() {
+            std::fs::write(
+                &file,
+                "color(\"red\") cube(2);\ntranslate([5,0,0]) cube(1);\n",
+            )
+            .unwrap();
+            let out = engine
+                .export(&Request::new(&file), &dir.path().join("t.3mf"))
+                .unwrap();
+            assert!(out.success, "{}", out.console);
+            let mesh = crate::mesh::Mesh::load_3mf(&dir.path().join("t.3mf")).unwrap();
+            assert_eq!(mesh.colors.len(), mesh.triangles.len());
+            assert!(mesh.colors.contains(&[0xff, 0, 0, 0xff]));
+        }
 
         std::fs::write(&file, "cube(;\n").unwrap();
         let out = engine.check(&Request::new(&file), dir.path()).unwrap();

@@ -24,8 +24,9 @@ editor.
 - **Preview**: the rendered model. Drag to orbit, Shift-drag to pan, scroll
   to zoom. The buttons switch between OpenSCAD's view presets and toggle
   edge outlines, axes (X red, Y green, Z blue) and the build-plate grid.
-  The interactive view is single-coloured; press `F5` for OpenSCAD's own
-  preview with `color()` and `#`/`%` modifiers.
+  With OpenSCAD 2024 or newer the interactive view shows `color()` (the
+  model is exported as 3MF); with older releases it is single-coloured.
+  Press `F5` for OpenSCAD's own preview, including the `#`/`%` modifiers.
 - **Customizer**: OpenSCAD's customizer, with the same groups, sliders,
   dropdowns, checkboxes and text fields, driven by the comments in your file.
   Changing a value edits the source in place and re-renders.

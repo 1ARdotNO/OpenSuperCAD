@@ -184,15 +184,18 @@ pub fn render_with(mesh: &Mesh, overlays: &Overlays, opts: &RasterOptions) -> Im
     // Light from the viewer, slightly above and to the left.
     let light = normalize([-0.4, -1.0, 0.6]);
 
-    for tri in &mesh.triangles {
+    for (ix, tri) in mesh.triangles.iter().enumerate() {
         let p = tri.map(project);
+        let base = mesh
+            .colors
+            .get(ix)
+            .map(|c| [c[0], c[1], c[2]])
+            .unwrap_or(opts.color);
         let world = tri.map(|v| rotate(v, opts.rotation));
         let n = normalize(cross(sub(world[1], world[0]), sub(world[2], world[0])));
         let lambert = dot(n, light).abs();
         let shade = 0.25 + 0.75 * lambert;
-        let rgb = opts
-            .color
-            .map(|c| (c as f32 * shade).clamp(0.0, 255.0) as u8);
+        let rgb = base.map(|c| (c as f32 * shade).clamp(0.0, 255.0) as u8);
         fill_triangle(&mut pixels, &mut depth, w, h, p, rgb);
     }
 
@@ -408,6 +411,7 @@ mod tests {
     /// than deep), so views can be told apart by the silhouette.
     fn plate() -> Mesh {
         Mesh {
+            colors: Vec::new(),
             triangles: vec![
                 [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 1.0, 0.0]],
                 [[0.0, 0.0, 0.0], [2.0, 1.0, 0.0], [0.0, 1.0, 0.0]],
@@ -452,6 +456,7 @@ mod tests {
             [v(1., 0., 0.), v(1., 1., 0.), v(1., 1., 1.), v(1., 0., 1.)],
         ];
         Mesh {
+            colors: Vec::new(),
             triangles: quads
                 .iter()
                 .flat_map(|q| [[q[0], q[1], q[2]], [q[0], q[2], q[3]]])
