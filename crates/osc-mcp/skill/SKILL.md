@@ -70,10 +70,14 @@ app. Use its tools instead of guessing.
 | `snapshot` | See the model as PNG images from one or more angles |
 | `render` | Run a full render: diagnostics, bounding box, triangle count |
 | `export` | Write STL/3MF/OFF/AMF/OBJ/DXF/SVG/PDF/PNG files |
+| `set_view` | Turn the user's viewport to a view, to show them what you mean |
 | `checkpoint`, `list_checkpoints`, `restore_checkpoint` | Manage iteration history |
 
 ## Etiquette
 
+- Your snapshots are also shown to the user in the thread. Mention which view
+  shows what you're describing, or call `set_view` to turn their viewport to
+  it.
 - Say what you changed and what the snapshots show. Never claim a model
   looks right without having looked at it.
 - Ask before deleting files or making sweeping rewrites of a user's design.

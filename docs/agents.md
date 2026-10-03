@@ -96,9 +96,23 @@ opensupercad-mcp --print-skill > SKILL.md
 | `snapshot` | PNG images from `iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, `diagonal`, or custom gimbal/look-at cameras. Preview or full render; optional `-D` overrides |
 | `render` | Full render: errors, warnings, echo output, bounding box (mm) and triangle count |
 | `export` | STL, 3MF, OFF, AMF, OBJ, WRL, DXF, SVG, PDF, PNG, CSG |
+| `set_view` | Turn the user's viewport (in the OpenSuperCAD window) to a named view or rotation |
 | `checkpoint` / `list_checkpoints` / `restore_checkpoint` | Iteration history (see [usage.md](usage.md#git-and-checkpoints)) |
 
 All file access is confined to the project folder.
+
+### Connection to the app window
+
+Inside OpenSuperCAD, the MCP server also gets a private control socket
+(`--control`) to the window it was launched from:
+
+- before each tool runs, the app saves unsaved edits, so the agent sees
+  exactly what you see,
+- snapshots the agent takes appear inline in the thread,
+- `set_view` turns your viewport.
+
+Run standalone (`opensupercad-mcp`), the server works the same, without
+these extras.
 
 ## Permissions and safety
 

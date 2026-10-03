@@ -49,6 +49,7 @@ pub struct AgentPanel {
     show_threads: bool,
     scroll: ScrollHandle,
     stderr_tail: Vec<String>,
+    control: Option<PathBuf>,
     _events: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
@@ -140,9 +141,51 @@ impl AgentPanel {
             show_threads: false,
             scroll: ScrollHandle::new(),
             stderr_tail: Vec::new(),
+            control: None,
             _events: None,
             _subs: subs,
         }
+    }
+
+    /// The window's control socket, handed to agents' MCP servers.
+    pub fn set_control(&mut self, socket: Option<PathBuf>) {
+        self.control = socket;
+    }
+
+    /// Snapshots the agent took through the MCP server: keep them with the
+    /// project's data and show them in the thread.
+    pub fn add_snapshots(
+        &mut self,
+        file: String,
+        images: Vec<(String, Vec<u8>)>,
+        cx: &mut Context<Self>,
+    ) {
+        let (Some((root, ..)), Some(thread)) = (&self.project, &mut self.thread) else {
+            return;
+        };
+        let dir = self.store.project_dir(root).join("snapshots");
+        if std::fs::create_dir_all(&dir).is_err() {
+            return;
+        }
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let mut text = format!("{SNAPSHOT_MARKER}{file}");
+        for (ix, (label, png)) in images.into_iter().enumerate() {
+            let safe: String = label
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '_')
+                .collect();
+            let path = dir.join(format!("{stamp}-{ix}-{safe}.png"));
+            if std::fs::write(&path, png).is_ok() {
+                text.push_str(&format!("\u{1f}{label}={}", path.display()));
+            }
+        }
+        thread.push(Role::System, text);
+        self.save_thread();
+        self.scroll.scroll_to_bottom();
+        cx.notify();
     }
 
     pub fn agent_name(&self) -> String {
@@ -284,6 +327,7 @@ impl AgentPanel {
                 project_name: name,
                 resume,
                 auto_checkpoint,
+                control: self.control.clone(),
             });
             let events = session.events.clone();
             self.session = Some(session);
@@ -439,6 +483,21 @@ impl AgentPanel {
         self.permissions.retain(|p| p.request != request);
         cx.notify();
     }
+}
+
+/// System messages starting with this marker hold agent snapshots:
+/// `␞file␟label=path␟label=path…`.
+const SNAPSHOT_MARKER: char = '\u{1e}';
+
+fn decode_snapshots(text: &str) -> Option<(String, Vec<(String, PathBuf)>)> {
+    let rest = text.strip_prefix(SNAPSHOT_MARKER)?;
+    let mut parts = rest.split('\u{1f}');
+    let file = parts.next()?.to_owned();
+    let images = parts
+        .filter_map(|p| p.split_once('='))
+        .map(|(l, p)| (l.to_owned(), PathBuf::from(p)))
+        .collect();
+    Some((file, images))
 }
 
 /// Tool-call messages are stored as `id␟title␟status␟output`.
@@ -715,6 +774,41 @@ impl AgentPanel {
                         })
                         .into_any_element()
                 }
+                Role::System if decode_snapshots(&m.text).is_some() => {
+                    let (file, images) = decode_snapshots(&m.text).unwrap_or_default();
+                    let mut grid = h_flex().gap_2().flex_wrap();
+                    for (label, path) in images {
+                        grid = grid.child(
+                            v_flex()
+                                .gap_0p5()
+                                .child(
+                                    img(path)
+                                        .w(px(168.))
+                                        .h(px(126.))
+                                        .rounded_md()
+                                        .border_1()
+                                        .border_color(theme.border)
+                                        .object_fit(ObjectFit::Contain),
+                                )
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(theme.muted_foreground)
+                                        .child(label),
+                                ),
+                        );
+                    }
+                    v_flex()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(format!("Agent snapshot of {file}")),
+                        )
+                        .child(grid)
+                        .into_any_element()
+                }
                 Role::System => {
                     let checkpoint = m.checkpoint.clone();
                     h_flex()
@@ -757,7 +851,7 @@ impl AgentPanel {
 
 #[cfg(test)]
 mod tests {
-    use super::{ToolStatus, decode_tool, encode_tool};
+    use super::{SNAPSHOT_MARKER, ToolStatus, decode_snapshots, decode_tool, encode_tool};
 
     #[test]
     fn tool_messages_roundtrip() {
@@ -772,5 +866,16 @@ mod tests {
             decode_tool(&encode_tool("a", "b", ToolStatus::Pending, None)).3,
             None
         );
+    }
+
+    #[test]
+    fn snapshot_messages_roundtrip() {
+        let text =
+            format!("{SNAPSHOT_MARKER}main.scad\u{1f}iso=/d/0-iso.png\u{1f}top=/d/1-top.png");
+        let (file, images) = decode_snapshots(&text).unwrap();
+        assert_eq!(file, "main.scad");
+        assert_eq!(images[1].0, "top");
+        assert_eq!(images[1].1, std::path::PathBuf::from("/d/1-top.png"));
+        assert!(decode_snapshots("Checkpoint abc").is_none());
     }
 }

@@ -143,6 +143,13 @@ impl Preview {
         self.rasterize(cx);
     }
 
+    /// Point the camera at an arbitrary rotation (from the agent).
+    pub fn set_rotation(&mut self, rotation: [f64; 3], cx: &mut Context<Self>) {
+        self.rotation = rotation.map(|v| v as f32);
+        self.openscad_image = None;
+        self.rasterize(cx);
+    }
+
     pub fn reset_view(&mut self, cx: &mut Context<Self>) {
         self.zoom = 1.0;
         self.pan = [0.0, 0.0];

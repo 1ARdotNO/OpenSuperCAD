@@ -51,6 +51,8 @@ pub struct Options {
     /// ACP session to resume with `session/load`, if the agent supports it.
     pub resume: Option<String>,
     pub auto_checkpoint: bool,
+    /// Control socket of this window, handed to the MCP server.
+    pub control: Option<PathBuf>,
 }
 
 impl Session {
@@ -106,9 +108,16 @@ impl Drop for Session {
 
 /// Command for the MCP server handed to the agent: this executable in `mcp`
 /// mode (falls back to a sibling `opensupercad-mcp`).
-fn mcp_command(root: &std::path::Path) -> (PathBuf, Vec<String>) {
+fn mcp_command(
+    root: &std::path::Path,
+    control: Option<&std::path::Path>,
+) -> (PathBuf, Vec<String>) {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("opensupercad"));
-    let args = vec!["--project".to_owned(), root.display().to_string()];
+    let mut args = vec!["--project".to_owned(), root.display().to_string()];
+    if let Some(socket) = control {
+        args.push("--control".to_owned());
+        args.push(socket.display().to_string());
+    }
     let is_app = exe.file_stem().is_some_and(|s| {
         s.to_string_lossy().starts_with("opensupercad") && !s.to_string_lossy().ends_with("-mcp")
     });
@@ -161,7 +170,7 @@ fn worker(
     let init = client
         .initialize()
         .map_err(|e| format!("initialize failed: {e}"))?;
-    let (cmd, args) = mcp_command(&opts.project_root);
+    let (cmd, args) = mcp_command(&opts.project_root, opts.control.as_deref());
     let mcp = vec![osc_agent::opensupercad_mcp_server(&cmd, args)];
 
     let mut resumed = false;
@@ -238,11 +247,18 @@ mod tests {
 
     #[test]
     fn mcp_command_points_back_at_us() {
-        let (cmd, args) = mcp_command(std::path::Path::new("/p"));
+        let (cmd, args) = mcp_command(
+            std::path::Path::new("/p"),
+            Some(std::path::Path::new("/s.sock")),
+        );
         // Under `cargo test` the executable is the test harness, so we fall
         // back to the sibling standalone server.
         assert!(cmd.ends_with("opensupercad-mcp") || args[0] == "mcp");
         assert!(args.iter().any(|a| a == "/p"));
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--control" && w[1] == "/s.sock")
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ fn main() -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("mcp") => {
             let mut project = std::env::current_dir()?;
+            let mut control = None;
             let mut it = args.iter().skip(1);
             while let Some(a) = it.next() {
                 match a.as_str() {
@@ -29,10 +30,11 @@ fn main() -> anyhow::Result<()> {
                             .map(PathBuf::from)
                             .ok_or_else(|| anyhow::anyhow!("--project needs a value"))?
                     }
+                    "--control" => control = it.next().map(PathBuf::from),
                     other => anyhow::bail!("unknown argument `{other}`\n\n{USAGE}"),
                 }
             }
-            osc_mcp::Server::new(project)?.serve_stdio()
+            osc_mcp::Server::with_control(project, control)?.serve_stdio()
         }
         Some("doctor") => doctor::run(),
         Some("--version" | "-V") => {

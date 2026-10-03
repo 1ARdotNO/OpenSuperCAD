@@ -19,6 +19,7 @@ use gpui_kit::component::{
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use osc_engine::{Diagnostic, Engine, Severity, View};
+use osc_mcp::control::{ControlReply, ControlRequest};
 use osc_project::{Project, RecentProject, Store};
 
 use super::agent_panel::{AgentPanel, AgentPanelEvent};
@@ -152,6 +153,10 @@ impl Workspace {
                 },
             ),
         ];
+
+        // Control channel for the agents' MCP servers (snapshots, camera, saves).
+        let control = start_control(window, cx);
+        agent.update(cx, |a, _| a.set_control(control));
 
         // Watch the disk for changes made by agents or other editors.
         let poll = cx.spawn_in(window, async move |this, cx| {
@@ -1097,6 +1102,73 @@ impl Workspace {
                 cursor.line + 1,
                 cursor.character + 1
             ))
+    }
+}
+
+type ControlMsg = (ControlRequest, std::sync::mpsc::Sender<ControlReply>);
+
+/// Listen on a per-window socket and handle requests on the UI thread.
+fn start_control(window: &mut Window, cx: &mut Context<Workspace>) -> Option<PathBuf> {
+    let (tx, rx) = async_channel::unbounded::<ControlMsg>();
+    let socket = crate::pipeline::scratch_dir().join("control.sock");
+    #[cfg(unix)]
+    osc_mcp::control::serve(&socket, move |req| {
+        let (reply_tx, reply_rx) = std::sync::mpsc::channel();
+        if tx.send_blocking((req, reply_tx)).is_err() {
+            return ControlReply::error("window closed");
+        }
+        reply_rx
+            .recv_timeout(Duration::from_secs(4))
+            .unwrap_or_else(|_| ControlReply::error("the app did not answer"))
+    })
+    .ok()?;
+    cx.spawn_in(window, async move |this, cx| {
+        while let Ok((req, reply)) = rx.recv().await {
+            let answer = this
+                .update_in(cx, |this, window, cx| this.on_control(req, window, cx))
+                .unwrap_or_else(|_| ControlReply::error("window closed"));
+            let _ = reply.send(answer);
+        }
+    })
+    .detach();
+    Some(socket)
+}
+
+impl Workspace {
+    fn on_control(
+        &mut self,
+        req: ControlRequest,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> ControlReply {
+        match req {
+            ControlRequest::SaveAll => {
+                if self.dirty {
+                    self.save(window, cx);
+                }
+                ControlReply::ok()
+            }
+            ControlRequest::Snapshot { file, images } => {
+                use base64::Engine as _;
+                let images = images
+                    .into_iter()
+                    .filter_map(|i| {
+                        base64::engine::general_purpose::STANDARD
+                            .decode(i.png_base64)
+                            .ok()
+                            .map(|png| (i.label, png))
+                    })
+                    .collect();
+                self.agent
+                    .update(cx, |a, cx| a.add_snapshots(file, images, cx));
+                ControlReply::ok()
+            }
+            ControlRequest::Camera { rotation } => {
+                self.preview
+                    .update(cx, |p, cx| p.set_rotation(rotation, cx));
+                ControlReply::ok()
+            }
+        }
     }
 }
 
