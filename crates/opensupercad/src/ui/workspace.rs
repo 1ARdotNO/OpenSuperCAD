@@ -131,6 +131,10 @@ impl Workspace {
                         this.refresh_files(cx);
                         this.git.update(cx, |g, cx| g.refresh(cx));
                     }
+                    AgentPanelEvent::ShowCheckpointDiff(id) => {
+                        let id = id.clone();
+                        this.show_checkpoint_diff(&id, "AI turn", window, cx);
+                    }
                     AgentPanelEvent::RestoreCheckpoint(id) => {
                         let id = id.clone();
                         this.git.update(cx, |g, cx| g.restore(&id, cx));
@@ -174,6 +178,10 @@ impl Workspace {
                             )),
                             cx,
                         );
+                    }
+                    GitEvent::ShowDiff { id, title } => {
+                        let (id, title) = (id.clone(), title.clone());
+                        this.show_checkpoint_diff(&id, &title, window, cx);
                     }
                     GitEvent::Message(msg) => {
                         window.push_notification(Notification::info(msg.clone()), cx)
@@ -568,6 +576,46 @@ impl Workspace {
             }
         })
         .detach();
+    }
+
+    /// Open a read-only, highlighted diff of what a checkpoint changed.
+    fn show_checkpoint_diff(
+        &mut self,
+        id: &str,
+        title: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(root) = self.project.as_ref().map(|p| p.root().to_path_buf()) else {
+            return;
+        };
+        let diff = osc_git::Repo::discover(&root)
+            .and_then(|repo| repo.diff_commit(id))
+            .unwrap_or_else(|e| format!("Could not compute the diff: {e}"));
+        let diff = if diff.trim().is_empty() {
+            "No changes.".to_owned()
+        } else {
+            diff
+        };
+        let editor = cx.new(|cx| {
+            EditorState::new(window, cx)
+                .language("diff")
+                .line_number(false)
+                .default_value(diff)
+        });
+        let short: String = id.chars().take(8).collect();
+        let heading = format!("{short} · {title}");
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .title(heading.clone())
+                .w(px(920.))
+                .margin_top(px(60.))
+                .child(
+                    div()
+                        .h(px(560.))
+                        .child(Editor::new(&editor).size_full().readonly(true)),
+                )
+        });
     }
 
     fn command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {

@@ -14,6 +14,11 @@ pub enum GitEvent {
     /// Files on disk changed because of a restore.
     Restored(String),
     Message(String),
+    /// Show what a checkpoint changed.
+    ShowDiff {
+        id: String,
+        title: String,
+    },
 }
 
 impl EventEmitter<GitEvent> for GitPanel {}
@@ -219,6 +224,20 @@ impl Render for GitPanel {
                                     .child(format!("{} · {}", c.short_id, ago(c.time))),
                             ),
                     )
+                    .child({
+                        let (id, title) = (c.id.clone(), c.summary.clone());
+                        Button::new(("diff", ix))
+                            .icon(IconName::Eye)
+                            .ghost()
+                            .xsmall()
+                            .tooltip("View changes")
+                            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                cx.emit(GitEvent::ShowDiff {
+                                    id: id.clone(),
+                                    title: title.clone(),
+                                })
+                            }))
+                    })
                     .child(
                         Button::new(("restore", ix))
                             .icon(IconName::Undo2)

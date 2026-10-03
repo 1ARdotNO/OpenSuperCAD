@@ -72,6 +72,7 @@ app. Use its tools instead of guessing.
 | `export` | Write STL/3MF/OFF/AMF/OBJ/DXF/SVG/PDF/PNG files |
 | `set_view` | Turn the user's viewport to a view, to show them what you mean |
 | `checkpoint`, `list_checkpoints`, `restore_checkpoint` | Manage iteration history |
+| `diff_checkpoint` | Review what an iteration changed (or what changed since it) |
 
 ## Etiquette
 

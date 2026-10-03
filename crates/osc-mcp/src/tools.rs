@@ -200,6 +200,19 @@ const TOOLS: &[ToolDef] = &[
         schema: || json!({ "type": "object", "properties": { "limit": { "type": "integer", "default": 20 } } }),
     },
     ToolDef {
+        name: "diff_checkpoint",
+        description: "Show a unified diff of what a checkpoint changed (default: the latest one), or with `to_working_tree` what changed since it. Use it to review your own iteration.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Checkpoint id; defaults to the latest." },
+                    "to_working_tree": { "type": "boolean", "default": false }
+                }
+            })
+        },
+    },
+    ToolDef {
         name: "restore_checkpoint",
         description: "Restore all project files to a checkpoint. The current state is checkpointed first, so this can be undone.",
         schema: || {
@@ -266,6 +279,7 @@ impl Tools {
             "checkpoint" => self.checkpoint(args),
             "list_checkpoints" => self.list_checkpoints(args),
             "restore_checkpoint" => self.restore_checkpoint(args),
+            "diff_checkpoint" => self.diff_checkpoint(args),
             "set_view" => self.set_view(args),
             _ => Err(format!("unknown tool `{name}`")),
         };
@@ -654,6 +668,48 @@ impl Tools {
             Err(_) => Vec::new(),
         };
         Ok(vec![Content::Text(pretty(&list))])
+    }
+
+    fn diff_checkpoint(&mut self, args: &Value) -> ToolResult {
+        let repo = self.repo(false)?;
+        let id = match args.get("id").and_then(Value::as_str) {
+            Some(id) => id.to_owned(),
+            None => repo
+                .checkpoints(1)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .next()
+                .map(|c| c.id)
+                .ok_or("there are no checkpoints yet")?,
+        };
+        let diff = if args
+            .get("to_working_tree")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            repo.diff_to_working_tree(&id)
+        } else {
+            repo.diff_commit(&id)
+        }
+        .map_err(|e| e.to_string())?;
+        const LIMIT: usize = 40_000;
+        let text = if diff.trim().is_empty() {
+            "No changes.".to_owned()
+        } else if diff.len() > LIMIT {
+            let cut = diff
+                .char_indices()
+                .take_while(|(i, _)| *i < LIMIT)
+                .last()
+                .map_or(0, |(i, _)| i);
+            format!(
+                "{}\n… diff truncated ({} bytes total)",
+                &diff[..cut],
+                diff.len()
+            )
+        } else {
+            diff
+        };
+        Ok(vec![Content::Text(text)])
     }
 
     fn restore_checkpoint(&mut self, args: &Value) -> ToolResult {

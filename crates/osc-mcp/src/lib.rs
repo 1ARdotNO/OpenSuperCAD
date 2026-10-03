@@ -354,6 +354,8 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        let r = call(&mut s, "diff_checkpoint", json!({}));
+        assert!(text(&r).contains("+cube(1);"), "{}", text(&r));
         let r = call(&mut s, "restore_checkpoint", json!({"id": first}));
         assert_eq!(r["isError"], false, "{}", text(&r));
         let src = std::fs::read_to_string(dir.path().join("main.scad")).unwrap();

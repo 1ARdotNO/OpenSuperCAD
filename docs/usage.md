@@ -139,6 +139,8 @@ Checkpoints are real git commits on a separate branch,
 so taking one **never touches your branch, your staged changes or your
 working tree**. That means:
 
+- **View changes** (the eye icon, or **Changes** in the thread) shows a
+  highlighted diff of what that iteration changed.
 - **Restore** brings all project files back to a checkpoint. The current
   state is checkpointed first, so a restore can itself be undone.
 - **Commit** ("promote") turns the current state into a normal commit on your

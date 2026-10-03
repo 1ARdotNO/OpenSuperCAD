@@ -22,6 +22,7 @@ pub enum AgentPanelEvent {
     FilesChanged,
     TurnEnded,
     RestoreCheckpoint(String),
+    ShowCheckpointDiff(String),
 }
 
 impl EventEmitter<AgentPanelEvent> for AgentPanel {}
@@ -822,7 +823,21 @@ impl AgentPanel {
                                 .child(TextView::markdown(("sys", ix), m.text.clone())),
                         )
                         .when_some(checkpoint, |el, id| {
+                            let diff_id = id.clone();
                             el.child(
+                                Button::new(("changes", ix))
+                                    .icon(IconName::Eye)
+                                    .label("Changes")
+                                    .ghost()
+                                    .xsmall()
+                                    .tooltip("View what this turn changed")
+                                    .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                                        cx.emit(AgentPanelEvent::ShowCheckpointDiff(
+                                            diff_id.clone(),
+                                        ))
+                                    })),
+                            )
+                            .child(
                                 Button::new(("rollback", ix))
                                     .icon(IconName::Undo2)
                                     .label("Restore")

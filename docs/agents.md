@@ -97,6 +97,7 @@ opensupercad-mcp --print-skill > SKILL.md
 | `render` | Full render: errors, warnings, echo output, bounding box (mm) and triangle count |
 | `export` | STL, 3MF, OFF, AMF, OBJ, WRL, DXF, SVG, PDF, PNG, CSG |
 | `set_view` | Turn the user's viewport (in the OpenSuperCAD window) to a named view or rotation |
+| `diff_checkpoint` | Unified diff of what a checkpoint changed, or what changed since it |
 | `checkpoint` / `list_checkpoints` / `restore_checkpoint` | Iteration history (see [usage.md](usage.md#git-and-checkpoints)) |
 
 All file access is confined to the project folder.
