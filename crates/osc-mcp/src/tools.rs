@@ -36,6 +36,10 @@ fn path_prop() -> Value {
     json!({ "type": "string", "description": "Project-relative path to a .scad file. Defaults to the project's main file." })
 }
 
+fn t_prop() -> Value {
+    json!({ "type": "number", "minimum": 0, "maximum": 1, "description": "Animation time: sets OpenSCAD's $t (0..1) to inspect a moment of an animated design." })
+}
+
 fn defines_prop() -> Value {
     json!({
         "type": "object",
@@ -140,7 +144,8 @@ const TOOLS: &[ToolDef] = &[
                     },
                     "size": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2, "description": "[width, height] in pixels, default [640, 480]." },
                     "mode": { "type": "string", "enum": ["preview", "render"], "description": "preview (fast, F5) or render (full geometry, F6). Default preview." },
-                    "defines": defines_prop()
+                    "defines": defines_prop(),
+                    "t": t_prop()
                 }
             })
         },
@@ -151,7 +156,8 @@ const TOOLS: &[ToolDef] = &[
         schema: || {
             json!({
                 "type": "object",
-                "properties": { "path": path_prop(), "defines": defines_prop() }
+                "properties": { "path": path_prop(), "defines": defines_prop(),
+                    "t": t_prop() }
             })
         },
     },
@@ -164,7 +170,8 @@ const TOOLS: &[ToolDef] = &[
                 "properties": {
                     "path": path_prop(),
                     "output": { "type": "string", "description": "Project-relative output path, e.g. exports/part.stl" },
-                    "defines": defines_prop()
+                    "defines": defines_prop(),
+                    "t": t_prop()
                 },
                 "required": ["output"]
             })
@@ -347,6 +354,10 @@ impl Tools {
                     .map_err(|_| format!("unsupported value for define `{name}`: {v}"))?;
                 req.defines.push((name.clone(), value));
             }
+        }
+        if let Some(t) = args.get("t").and_then(Value::as_f64) {
+            req.defines
+                .push(("$t".into(), ParamValue::Number(t.clamp(0.0, 1.0))));
         }
         Ok(req)
     }

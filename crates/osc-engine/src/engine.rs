@@ -341,6 +341,42 @@ impl Engine {
         wrapper: &[String],
     ) -> Result<RenderOutput, EngineError> {
         let start = Instant::now();
+        // OpenSCAD ignores `-D` for special variables such as `$t`, so those
+        // are set in a wrapper that includes the design.
+        let (special, plain): (Vec<_>, Vec<_>) = req
+            .defines
+            .iter()
+            .cloned()
+            .partition(|(name, _)| name.starts_with('$'));
+        let wrapper_file;
+        let effective;
+        let req = if special.is_empty() {
+            req
+        } else {
+            let file = req.file.canonicalize().unwrap_or_else(|_| req.file.clone());
+            let mut source = String::new();
+            for (name, value) in &special {
+                source.push_str(&format!("{name} = {};\n", value.to_scad()));
+            }
+            source.push_str(&format!("include <{}>\n", file.display()));
+            wrapper_file = tempfile::Builder::new()
+                .prefix("osc-wrapper-")
+                .suffix(".scad")
+                .tempfile()
+                .map_err(|source| EngineError::Spawn {
+                    binary: self.binary.clone(),
+                    source,
+                })?;
+            std::fs::write(wrapper_file.path(), source).map_err(|source| EngineError::Spawn {
+                binary: self.binary.clone(),
+                source,
+            })?;
+            effective = Request {
+                file: wrapper_file.path().to_path_buf(),
+                defines: plain,
+            };
+            &effective
+        };
         let mut cmd = self.command(wrapper);
         cmd.args(self.args(req, out, extra));
         if let Some(dir) = req.file.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -493,6 +529,18 @@ mod tests {
         let (min, max) = mesh.bounds();
         assert!((max[0] - min[0] - 4.0).abs() < 1e-3);
         assert_eq!(out.echoes().count(), 1);
+
+        // Special variables ($t) take effect through the wrapper.
+        std::fs::write(&file, "translate([10 * $t, 0, 0]) cube(1);\n").unwrap();
+        let req_t = Request::new(&file).define("$t", Value::Number(0.5));
+        let out = engine.export(&req_t, &dir.path().join("t5.stl")).unwrap();
+        assert!(out.success, "{}", out.console);
+        let mesh = crate::mesh::Mesh::load_stl(&dir.path().join("t5.stl")).unwrap();
+        assert!(
+            (mesh.bounds().0[0] - 5.0).abs() < 1e-3,
+            "{:?}",
+            mesh.bounds()
+        );
 
         if engine.exports_colors() {
             std::fs::write(

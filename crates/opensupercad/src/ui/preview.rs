@@ -44,6 +44,43 @@ pub struct Preview {
     raster_gen: u64,
     render_gen: u64,
     pub last_message: Option<SharedString>,
+    /// File of the last render (animation frames are rendered from it).
+    last_file: Option<PathBuf>,
+    anim: Option<Animation>,
+}
+
+/// A rendered animation frame: mesh plus its outline edges.
+type Frame = (Arc<Mesh>, Arc<Vec<[osc_engine::mesh::Vec3; 2]>>);
+
+/// OpenSCAD animation: frames rendered with `$t = i / steps`, cached so
+/// playback and scrubbing are instant.
+struct Animation {
+    steps: usize,
+    fps: u32,
+    frame: usize,
+    playing: bool,
+    frames: Vec<Option<Frame>>,
+    generation: u64,
+}
+
+impl Animation {
+    /// Union of the rendered frames' bounds, so playback doesn't jitter.
+    fn bounds(&self) -> Option<([f32; 3], [f32; 3])> {
+        self.frames
+            .iter()
+            .flatten()
+            .map(|(m, _)| m.bounds())
+            .reduce(|(a0, a1), (b0, b1)| {
+                (
+                    [a0[0].min(b0[0]), a0[1].min(b0[1]), a0[2].min(b0[2])],
+                    [a1[0].max(b1[0]), a1[1].max(b1[1]), a1[2].max(b1[2])],
+                )
+            })
+    }
+
+    fn t(&self, frame: usize) -> f64 {
+        frame as f64 / self.steps as f64
+    }
 }
 
 impl Preview {
@@ -66,6 +103,8 @@ impl Preview {
             raster_gen: 0,
             render_gen: 0,
             last_message: None,
+            last_file: None,
+            anim: None,
         }
     }
 
@@ -88,14 +127,20 @@ impl Preview {
             cx.notify();
             return;
         };
+        self.last_file = Some(file.to_path_buf());
+        if self.anim.is_some() {
+            // The design changed: re-render every animation frame.
+            self.render_frames(cx);
+            return;
+        }
         self.render_gen += 1;
         let generation = self.render_gen;
         self.busy += 1;
         cx.notify();
         let file = file.to_path_buf();
         let scratch = self.scratch.clone();
-        let job =
-            cx.background_spawn(async move { pipeline::render_mesh(&engine, &file, &scratch) });
+        let job = cx
+            .background_spawn(async move { pipeline::render_mesh(&engine, &file, &[], &scratch) });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |this, cx| {
@@ -157,6 +202,197 @@ impl Preview {
         self.rasterize(cx);
     }
 
+    pub fn toggle_animation(&mut self, cx: &mut Context<Self>) {
+        if self.anim.take().is_some() {
+            if let Some(file) = self.last_file.clone() {
+                self.render(&file, cx);
+            }
+        } else {
+            self.anim = Some(Animation {
+                steps: 24,
+                fps: 12,
+                frame: 0,
+                playing: false,
+                frames: Vec::new(),
+                generation: 0,
+            });
+            self.render_frames(cx);
+        }
+        cx.notify();
+    }
+
+    /// Render all frames in the background, one after another.
+    fn render_frames(&mut self, cx: &mut Context<Self>) {
+        let (Some(engine), Some(file), Some(anim)) = (
+            self.engine.clone(),
+            self.last_file.clone(),
+            self.anim.as_mut(),
+        ) else {
+            return;
+        };
+        anim.generation += 1;
+        anim.frames = vec![None; anim.steps];
+        let (generation, steps) = (anim.generation, anim.steps);
+        let scratch = self.scratch.clone();
+        self.busy += 1;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let mut failed = None;
+            for i in 0..steps {
+                let (engine, file, scratch) = (engine.clone(), file.clone(), scratch.clone());
+                let t = i as f64 / steps as f64;
+                let result = cx
+                    .background_spawn(async move {
+                        let defines = [("$t".to_owned(), osc_syntax::customizer::Value::Number(t))];
+                        pipeline::render_mesh(&engine, &file, &defines, &scratch)
+                    })
+                    .await;
+                let keep_going = this
+                    .update(cx, |this, cx| {
+                        let Some(anim) = this.anim.as_mut().filter(|a| a.generation == generation)
+                        else {
+                            return false;
+                        };
+                        if let Some(mesh) = result.mesh.clone() {
+                            anim.frames[i] = Some((
+                                Arc::new(mesh),
+                                Arc::new(result.edges.clone().unwrap_or_default()),
+                            ));
+                            if i == anim.frame {
+                                this.show_frame(i, cx);
+                            }
+                        } else if failed.is_none() {
+                            failed = Some(result.clone());
+                        }
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
+            }
+            this.update(cx, |this, cx| {
+                this.busy = this.busy.saturating_sub(1);
+                if let Some(result) = failed {
+                    this.last_message = Some(summary(&result).into());
+                    cx.emit(PreviewEvent::Finished(result));
+                } else if let Some(anim) = &this.anim {
+                    this.last_message = Some(
+                        format!("Animation: {} frames at {} fps", anim.steps, anim.fps).into(),
+                    );
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    fn show_frame(&mut self, frame: usize, cx: &mut Context<Self>) {
+        let Some(anim) = self.anim.as_mut() else {
+            return;
+        };
+        anim.frame = frame.min(anim.steps.saturating_sub(1));
+        if let Some(Some((mesh, edges))) = anim.frames.get(anim.frame) {
+            self.mesh = Some(mesh.clone());
+            self.edges = edges.clone();
+            self.openscad_image = None;
+            self.rasterize(cx);
+        }
+        cx.notify();
+    }
+
+    fn toggle_play(&mut self, cx: &mut Context<Self>) {
+        let Some(anim) = self.anim.as_mut() else {
+            return;
+        };
+        anim.playing = !anim.playing;
+        if !anim.playing {
+            cx.notify();
+            return;
+        }
+        let interval = std::time::Duration::from_millis(1000 / u64::from(anim.fps.max(1)));
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor().timer(interval).await;
+                let playing = this
+                    .update(cx, |this, cx| {
+                        let Some(anim) = this.anim.as_ref().filter(|a| a.playing) else {
+                            return false;
+                        };
+                        let next = (anim.frame + 1) % anim.steps.max(1);
+                        this.show_frame(next, cx);
+                        true
+                    })
+                    .unwrap_or(false);
+                if !playing {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.notify();
+    }
+
+    fn render_animation_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let anim = self.anim.as_ref()?;
+        let theme = cx.theme().clone();
+        let mut cells = h_flex().flex_1().h(px(14.)).gap_px();
+        for i in 0..anim.steps {
+            let ready = anim.frames.get(i).is_some_and(Option::is_some);
+            let current = i == anim.frame;
+            cells = cells.child(
+                div()
+                    .id(("frame", i))
+                    .flex_1()
+                    .h_full()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .bg(if current {
+                        theme.primary
+                    } else if ready {
+                        theme.muted
+                    } else {
+                        theme.background
+                    })
+                    .border_1()
+                    .border_color(theme.border)
+                    .on_click(
+                        cx.listener(move |this, _: &ClickEvent, _, cx| this.show_frame(i, cx)),
+                    ),
+            );
+        }
+        Some(
+            h_flex()
+                .gap_2()
+                .px_2()
+                .py_1()
+                .border_t_1()
+                .border_color(theme.border)
+                .child(
+                    Button::new("anim-play")
+                        .icon(if anim.playing {
+                            IconName::Pause
+                        } else {
+                            IconName::Play
+                        })
+                        .ghost()
+                        .xsmall()
+                        .tooltip(if anim.playing { "Pause" } else { "Play" })
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_play(cx))),
+                )
+                .child(cells)
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(format!("$t = {:.3}", anim.t(anim.frame))),
+                )
+                .into_any_element(),
+        )
+    }
+
     /// Point the camera at an arbitrary rotation (from the agent).
     pub fn set_rotation(&mut self, rotation: [f64; 3], cx: &mut Context<Self>) {
         self.rotation = rotation.map(|v| v as f32);
@@ -192,6 +428,7 @@ impl Preview {
                 0xff,
             ],
             color: [0xf9, 0xd7, 0x5c],
+            bounds: self.anim.as_ref().and_then(Animation::bounds),
         };
         let edges = self.edges.clone();
         let (show_edges, axes, grid) = (self.show_edges, self.show_axes, self.show_grid);
@@ -327,6 +564,15 @@ impl Render for Preview {
             ))
             .child(self.toggle("t-axes", "Axes", self.show_axes, |p| &mut p.show_axes, cx))
             .child(self.toggle("t-grid", "Grid", self.show_grid, |p| &mut p.show_grid, cx))
+            .child(
+                Button::new("t-anim")
+                    .label("Animate")
+                    .ghost()
+                    .xsmall()
+                    .selected(self.anim.is_some())
+                    .tooltip("Render $t frames (OpenSCAD animation)")
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.toggle_animation(cx))),
+            )
             .child(div().flex_1())
             .when(self.busy > 0, |el| el.child(Spinner::new().small()))
             .child(
@@ -338,6 +584,7 @@ impl Render for Preview {
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.reset_view(cx))),
             );
 
+        let anim_bar = self.render_animation_bar(cx);
         let viewport = div()
             .id("viewport")
             .flex_1()
@@ -383,6 +630,7 @@ impl Render for Preview {
             .size_full()
             .child(toolbar)
             .child(viewport)
+            .when_some(anim_bar, |el, bar| el.child(bar))
             .when_some(self.last_message.clone(), |el, msg| {
                 el.child(
                     div()

@@ -19,7 +19,8 @@ app. Use its tools instead of guessing.
 3. **Look.** Call `snapshot` after every meaningful change. The default views
    are iso, front, top and right. Add `bottom`, `back`, `left` or `diagonal`
    (from below) when undersides, overhangs or hidden faces matter. A `gimbal`
-   camera gives any other angle. **Study the images.** Check proportions,
+   camera gives any other angle. For animated designs (`$t`), pass `t`
+   (0..1) to look at a particular moment. **Study the images.** Check proportions,
    intersections, floating parts, wall thickness and orientation against what
    the user asked for.
 4. **Verify geometry.** `render` performs a full render and reports the

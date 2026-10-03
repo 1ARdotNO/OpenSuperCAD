@@ -19,6 +19,9 @@ pub struct RasterOptions {
     pub pan: [f32; 2],
     pub background: [u8; 4],
     pub color: [u8; 3],
+    /// Frame the camera on these bounds instead of the mesh's own (keeps an
+    /// animation steady while parts move).
+    pub bounds: Option<(Vec3, Vec3)>,
 }
 
 impl Default for RasterOptions {
@@ -31,6 +34,7 @@ impl Default for RasterOptions {
             pan: [0.0, 0.0],
             background: [0x1e, 0x1f, 0x22, 0xff],
             color: [0xf9, 0xd7, 0x5c],
+            bounds: None,
         }
     }
 }
@@ -155,7 +159,7 @@ pub fn render_with(mesh: &Mesh, overlays: &Overlays, opts: &RasterOptions) -> Im
     }
     let mut depth = vec![f32::INFINITY; (w * h) as usize];
 
-    let (min, max) = mesh.bounds();
+    let (min, max) = opts.bounds.unwrap_or_else(|| mesh.bounds());
     let center = [
         (min[0] + max[0]) / 2.0,
         (min[1] + max[1]) / 2.0,

@@ -43,7 +43,12 @@ impl JobResult {
 }
 
 /// Export an STL and load it.
-pub fn render_mesh(engine: &Engine, file: &Path, scratch: &Path) -> JobResult {
+pub fn render_mesh(
+    engine: &Engine,
+    file: &Path,
+    defines: &[(String, osc_syntax::customizer::Value)],
+    scratch: &Path,
+) -> JobResult {
     // Newer OpenSCAD keeps color() in 3MF; older releases get plain STL.
     let ext = if engine.exports_colors() {
         "3mf"
@@ -51,7 +56,13 @@ pub fn render_mesh(engine: &Engine, file: &Path, scratch: &Path) -> JobResult {
         "stl"
     };
     let out = scratch.join(format!("render-{}.{ext}", unique()));
-    let result = match engine.export(&Request::new(file), &out) {
+    let result = match engine.export(
+        &Request {
+            file: file.to_path_buf(),
+            defines: defines.to_vec(),
+        },
+        &out,
+    ) {
         Ok(r) => r,
         Err(e) => return JobResult::failed(e.to_string()),
     };
@@ -136,7 +147,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("m.scad");
         std::fs::write(&file, "cube([10, 20, 5]);").unwrap();
-        let r = render_mesh(&engine, &file, dir.path());
+        let r = render_mesh(&engine, &file, &[], dir.path());
         assert!(r.success);
         let mesh = r.mesh.unwrap();
         assert_eq!(mesh.bounds().1, [10.0, 20.0, 5.0]);
@@ -148,7 +159,7 @@ mod tests {
         assert_eq!(&png[1..4], b"PNG");
 
         std::fs::write(&file, "cube(;").unwrap();
-        let r = render_mesh(&engine, &file, dir.path());
+        let r = render_mesh(&engine, &file, &[], dir.path());
         assert!(!r.success);
         assert!(r.mesh.is_none());
     }

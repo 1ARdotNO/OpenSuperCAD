@@ -93,7 +93,7 @@ opensupercad-mcp --print-skill > SKILL.md
 | `write_file` / `edit_file` | Change files. `.scad` writes return OpenSCAD's syntax check |
 | `outline` | Modules and functions of a file with line numbers |
 | `get_parameters` / `set_parameters` | Read or tune Customizer parameters without disturbing comments and annotations |
-| `snapshot` | PNG images from `iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, `diagonal`, or custom gimbal/look-at cameras. Preview or full render; optional `-D` overrides |
+| `snapshot` | PNG images from `iso`, `front`, `back`, `left`, `right`, `top`, `bottom`, `diagonal`, or custom gimbal/look-at cameras. Preview or full render; optional `-D` overrides and animation time `t` (`$t`) |
 | `render` | Full render: errors, warnings, echo output, bounding box (mm) and triangle count |
 | `export` | STL, 3MF, OFF, AMF, OBJ, WRL, DXF, SVG, PDF, PNG, CSG |
 | `set_view` | Turn the user's viewport (in the OpenSuperCAD window) to a named view or rotation |

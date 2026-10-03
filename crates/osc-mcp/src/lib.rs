@@ -403,6 +403,8 @@ mod tests {
         let r = call(&mut s, "render", json!({}));
         assert_eq!(r["isError"], false, "{}", text(&r));
         assert!(text(&r).contains("bounding_box"));
+        let r = call(&mut s, "render", json!({"t": 0.5}));
+        assert_eq!(r["isError"], false, "{}", text(&r));
 
         let r = call(
             &mut s,

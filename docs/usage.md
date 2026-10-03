@@ -107,6 +107,12 @@ itself.
 | Reset view | `Ctrl/Cmd-Shift-0` | View → Reset View |
 | Save | `Ctrl/Cmd-S` | File → Save (also triggers preview, as with OpenSCAD's auto-reload) |
 
+**Animation.** Designs that use OpenSCAD's `$t` can be animated. Click
+**Animate** in the preview toolbar: OpenSuperCAD renders 24 frames
+(`$t = 0 … 23/24`) in the background, then **Play** loops them and the frame
+strip lets you scrub to any moment. Saving re-renders the frames. Try
+`examples/animation`.
+
 Customizer annotations follow the OpenSCAD conventions:
 
 ```openscad
