@@ -4877,7 +4877,19 @@ checksum = "7c87def4c32ab89d880effc9e097653c8da5d6ef28e6b539d313baaacfbafcbe"
 name = "opensupercad"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "async-channel",
+ "dirs 6.0.0",
  "gpui-kit",
+ "osc-agent",
+ "osc-engine",
+ "osc-git",
+ "osc-mcp",
+ "osc-project",
+ "osc-syntax",
+ "serde",
+ "serde_json",
+ "tempfile",
  "tree-sitter-openscad-ng",
 ]
 
