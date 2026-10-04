@@ -562,4 +562,35 @@ mod tests {
         assert!(!out.success);
         assert_eq!(out.errors().next().and_then(|d| d.line), Some(1));
     }
+
+    /// Every bundled example renders cleanly, skipped without OpenSCAD.
+    #[test]
+    fn examples_render() {
+        let Ok(engine) = Engine::discover() else {
+            eprintln!("openscad not installed; skipping");
+            return;
+        };
+        let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
+        let dir = tempfile::tempdir().unwrap();
+        let mut count = 0;
+        for entry in std::fs::read_dir(&examples).unwrap() {
+            let main = entry.unwrap().path().join("main.scad");
+            if !main.exists() {
+                continue;
+            }
+            let out = engine
+                .export(&Request::new(&main), &dir.path().join("out.stl"))
+                .unwrap();
+            assert!(out.success, "{}: {}", main.display(), out.console);
+            assert_eq!(
+                out.warnings().count(),
+                0,
+                "{}: {}",
+                main.display(),
+                out.console
+            );
+            count += 1;
+        }
+        assert!(count >= 5, "found {count} examples");
+    }
 }

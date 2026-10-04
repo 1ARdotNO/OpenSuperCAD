@@ -54,3 +54,7 @@ Users then run `brew install --cask 1ardotno/tap/opensupercad`.
 - Install the [Renovate GitHub App](https://github.com/apps/renovate).
 - Settings → General → **Allow auto-merge**.
 - Branch protection or a ruleset on `main` that requires the `ci-ok` check.
+- Settings → General → Default branch: **`main`**.
+- Settings → Pages → Source: **GitHub Actions** (for `pages.yml`).
+- Settings → General → Releases: **immutable releases**, so a published
+  release's assets and `SHA256SUMS` can't be changed afterwards.

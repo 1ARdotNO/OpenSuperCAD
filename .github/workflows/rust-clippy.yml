@@ -23,7 +23,7 @@ concurrency:
 jobs:
   rust-clippy-analyze:
     name: clippy-sarif
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -33,7 +33,14 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
       - name: Install clippy-sarif
-        run: cargo install clippy-sarif sarif-fmt --locked
+        env:
+          # renovate: datasource=crate depName=clippy-sarif
+          CLIPPY_SARIF_VERSION: 0.8.0
+          # renovate: datasource=crate depName=sarif-fmt
+          SARIF_FMT_VERSION: 0.8.0
+        run: |
+          cargo install clippy-sarif --version "$CLIPPY_SARIF_VERSION" --locked
+          cargo install sarif-fmt --version "$SARIF_FMT_VERSION" --locked
       - name: Run clippy (SARIF)
         run: |
           cargo clippy --workspace --exclude opensupercad --all-targets --message-format=json \

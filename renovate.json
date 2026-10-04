@@ -4,8 +4,10 @@
     "config:recommended",
     ":dependencyDashboard",
     "group:allNonMajor",
-    "helpers:pinGitHubActionDigests"
+    "helpers:pinGitHubActionDigests",
+    "docker:pinDigests"
   ],
+  "baseBranchPatterns": ["main"],
   "labels": ["dependencies"],
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
@@ -24,7 +26,23 @@
     "labels": ["security"],
     "automerge": true
   },
+  "customManagers": [
+    {
+      "description": "Tool versions annotated with `# renovate: datasource=... depName=...` in workflows (cargo install pins and similar).",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)(?: versioning=(?<versioning>[^\\s]+))?\\s+[A-Z0-9_]+: ['\"]?(?<currentValue>[^'\"\\s]+)"
+      ]
+    }
+  ],
   "packageRules": [
+    {
+      "description": "ubuntu-26.04 is not an available GitHub-hosted runner label yet (runner versions use docker versioning, so a regex instead of a range). Lift this once GitHub lists it.",
+      "matchDatasources": ["github-runners"],
+      "matchPackageNames": ["ubuntu"],
+      "allowedVersions": "/^24\\.04$/"
+    },
     {
       "description": "Heavy automerge for everything: the CI suite (fmt + clippy -D warnings + tests against real OpenSCAD + Linux and macOS app builds + cargo-deny + dependency-review + CodeQL + Trivy) is the safety net, so anything that stays green merges itself.",
       "matchManagers": ["cargo", "github-actions"],
@@ -36,7 +54,7 @@
       "groupName": "github-actions"
     },
     {
-      "description": "GPUI Kit crates and the GPUI snapshot they pin must move together.",
+      "description": "GPUI Kit crates and the GPUI snapshot they pin must move together. tree-sitter is deliberately not a direct dependency: it comes through gpui-kit.",
       "matchPackageNames": ["gpui-kit", "gpui-component", "gpui-base", "/^gpui-pre/"],
       "groupName": "gpui-kit"
     },

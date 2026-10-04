@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenSuperCAD</title>
+  <meta name="description" content="An AI-powered, Zed-style editor for OpenSCAD. Bring any ACP agent; it renders, looks at your model from every angle, and iterates with you. Every step is checkpointed in git.">
+  <meta property="og:title" content="OpenSuperCAD">
+  <meta property="og:description" content="An AI-powered, Zed-style editor for OpenSCAD.">
+  <meta property="og:image" content="images/customizer-gear.png">
+  <link rel="icon" href="images/icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #0e0f11;
+      --panel: #16181b;
+      --line: #26292e;
+      --text: #e6e6e6;
+      --muted: #9aa0a6;
+      --accent: #e8c547;
+      --accent-2: #4fb3bf;
+      --radius: 10px;
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme="dark"]) {
+        --bg: #fafafa;
+        --panel: #ffffff;
+        --line: #e3e3e3;
+        --text: #1d1f22;
+        --muted: #5f6368;
+        --accent: #b8901a;
+        --accent-2: #1f7a85;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    a { color: var(--accent-2); }
+    code, pre { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+    nav {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 0; gap: 16px; flex-wrap: wrap;
+    }
+    nav .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--text); text-decoration: none; }
+    nav .brand img { width: 28px; height: 28px; }
+    nav .links { display: flex; gap: 18px; flex-wrap: wrap; }
+    nav .links a { color: var(--muted); text-decoration: none; }
+    nav .links a:hover { color: var(--text); }
+    header { padding: 48px 0 32px; text-align: center; }
+    h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.15; margin: 0 0 16px; }
+    h1 span { color: var(--accent); }
+    .lead { font-size: 1.15rem; color: var(--muted); max-width: 720px; margin: 0 auto 28px; }
+    .cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-block; padding: 10px 18px; border-radius: 8px;
+      border: 1px solid var(--line); color: var(--text); text-decoration: none; font-weight: 600;
+    }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #111; }
+    .shot {
+      display: block; width: 100%; height: auto; border-radius: var(--radius);
+      border: 1px solid var(--line); box-shadow: 0 20px 60px rgba(0, 0, 0, .35);
+    }
+    section { padding: 48px 0; }
+    h2 { font-size: 1.7rem; margin: 0 0 20px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; }
+    .card h3 { margin: 0 0 8px; font-size: 1.05rem; }
+    .card p { margin: 0; color: var(--muted); }
+    .gallery { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); }
+    .gallery figure { margin: 0; }
+    .gallery figcaption { color: var(--muted); font-size: .95rem; margin-top: 8px; }
+    .steps { counter-reset: step; list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+    .steps li { counter-increment: step; padding-left: 44px; position: relative; }
+    .steps li::before {
+      content: counter(step); position: absolute; left: 0; top: 0;
+      width: 30px; height: 30px; border-radius: 50%; background: var(--panel);
+      border: 1px solid var(--line); display: grid; place-items: center; font-weight: 700; color: var(--accent);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 600; }
+    td code, p code, li code { background: var(--panel); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; font-size: .9em; }
+    .table-scroll { overflow-x: auto; }
+    pre { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; overflow-x: auto; }
+    footer { padding: 40px 0; color: var(--muted); border-top: 1px solid var(--line); margin-top: 32px; font-size: .95rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="./"><img src="images/icon.svg" alt="">OpenSuperCAD</a>
+      <div class="links">
+        <a href="#features">Features</a>
+        <a href="#install">Install</a>
+        <a href="https://github.com/1ARdotNO/OpenSuperCAD/blob/main/docs/usage.md">Docs</a>
+        <a href="https://github.com/1ARdotNO/OpenSuperCAD/releases/latest">Download</a>
+        <a href="https://github.com/1ARdotNO/OpenSuperCAD">GitHub</a>
+      </div>
+    </nav>
+
+    <header>
+      <h1>Design in <span>OpenSCAD</span>,<br>with an AI that can see.</h1>
+      <p class="lead">
+        OpenSuperCAD is a fast, native, Zed-style editor for OpenSCAD. Describe what you
+        want: the agent of your choice writes the parametric code, renders it, looks at it
+        from several angles and iterates with you. Every step is checkpointed in git.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/1ARdotNO/OpenSuperCAD/releases/latest">Download</a>
+        <a class="btn" href="https://github.com/1ARdotNO/OpenSuperCAD/blob/main/docs/installation.md">Installation guide</a>
+      </div>
+    </header>
+
+    <img class="shot" src="images/customizer-gear.png" width="1480" height="920"
+         alt="OpenSuperCAD editing a parametric spur gear, with the customizer and live preview">
+
+    <section id="features">
+      <h2>Why OpenSuperCAD</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Bring any agent</h3>
+          <p>Speaks the Agent Client Protocol, like Zed: Claude Code, Gemini CLI, Codex, Goose, OpenCode or your own, with any model.</p>
+        </div>
+        <div class="card">
+          <h3>The agent can see</h3>
+          <p>A built-in MCP server lets the agent render, take snapshots from any camera, tune customizer parameters and export. A design skill loads automatically.</p>
+        </div>
+        <div class="card">
+          <h3>Still OpenSCAD</h3>
+          <p>The upstream <code>openscad</code> binary does the geometry, so every language feature, export format and option keeps working.</p>
+        </div>
+        <div class="card">
+          <h3>Every step undoable</h3>
+          <p>Each AI turn is a git checkpoint on a side branch. See exactly what changed, restore any iteration, or promote it to a commit.</p>
+        </div>
+        <div class="card">
+          <h3>Projects, Zed-style</h3>
+          <p>Switch project folders instantly, each with its own files, settings and AI threads, plus git for commits and history.</p>
+        </div>
+        <div class="card">
+          <h3>Fast and native</h3>
+          <p>Written in Rust on GPUI, Zed's GPU-accelerated UI framework. Linux and macOS.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="tour">
+      <h2>A quick tour</h2>
+      <div class="gallery">
+        <figure>
+          <img class="shot" src="images/command-palette.png" width="1480" height="920" loading="lazy"
+               alt="The command palette">
+          <figcaption><strong>Command palette.</strong> Every command and shortcut, fuzzy-searchable, plus a file finder and recent projects.</figcaption>
+        </figure>
+        <figure>
+          <img class="shot" src="images/twisted-vase.png" width="1480" height="920" loading="lazy"
+               alt="A twisted vase in the live preview">
+          <figcaption><strong>Live preview.</strong> Orbit, pan and zoom, view presets, edges, axes and grid. F5/F6/F7 work as in OpenSCAD.</figcaption>
+        </figure>
+        <figure>
+          <img class="shot" src="images/git-checkpoints.png" width="1480" height="920" loading="lazy"
+               alt="Checkpoints in the git panel">
+          <figcaption><strong>Checkpoints.</strong> One per AI turn, stored on <code>osc/checkpoints/&lt;branch&gt;</code> without touching your index or working tree.</figcaption>
+        </figure>
+        <figure>
+          <img class="shot" src="images/checkpoint-diff.png" width="1480" height="920" loading="lazy"
+               alt="The diff of a checkpoint">
+          <figcaption><strong>Diffs.</strong> See what an iteration changed, then keep it or roll back.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="loop">
+      <h2>The design loop</h2>
+      <ol class="steps">
+        <li>Open a project folder and pick an agent in the agent panel.</li>
+        <li>Ask: <em>"A wall-mount bracket for a 25&nbsp;mm pipe, two M4 holes, printable without supports."</em></li>
+        <li>The agent edits the <code>.scad</code> files, renders and checks snapshots from several angles. The preview updates live.</li>
+        <li>Iterate: <em>"make the walls 3&nbsp;mm"</em>. Simple tweaks go straight through the customizer parameters.</li>
+        <li>Don't like a step? Restore its checkpoint from the thread or the git panel.</li>
+      </ol>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <div class="table-scroll">
+        <table>
+          <tr><th>Platform</th><th>How</th></tr>
+          <tr><td>Debian / Ubuntu</td><td><code>.deb</code> from the <a href="https://github.com/1ARdotNO/OpenSuperCAD/releases/latest">latest release</a>, then <code>sudo apt install ./opensupercad_*.deb</code></td></tr>
+          <tr><td>Arch Linux</td><td><code>.pkg.tar.zst</code> from the latest release, then <code>sudo pacman -U opensupercad-*.pkg.tar.zst</code></td></tr>
+          <tr><td>macOS (universal)</td><td><code>.dmg</code> from the latest release</td></tr>
+          <tr><td>From source</td><td><code>cargo run --release -p opensupercad</code></td></tr>
+        </table>
+      </div>
+      <p>You also need OpenSCAD and at least one ACP agent. Then check your setup:</p>
+      <pre><code>opensupercad doctor
+opensupercad examples/phone-stand</code></pre>
+      <p>
+        More: <a href="https://github.com/1ARdotNO/OpenSuperCAD/blob/main/docs/usage.md">Usage</a> ·
+        <a href="https://github.com/1ARdotNO/OpenSuperCAD/blob/main/docs/agents.md">Agents and MCP tools</a> ·
+        <a href="https://github.com/1ARdotNO/OpenSuperCAD/blob/main/docs/architecture.md">Architecture</a>
+      </p>
+    </section>
+
+    <footer>
+      OpenSuperCAD is open source under MIT or Apache-2.0. Not affiliated with the OpenSCAD project.
+      · <a href="https://github.com/1ARdotNO/OpenSuperCAD">Source</a>
+      · <a href="https://github.com/sponsors/1ardotno">Sponsor</a>
+    </footer>
+  </div>
+</body>
+</html>
