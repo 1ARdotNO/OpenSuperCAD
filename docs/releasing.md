@@ -5,6 +5,12 @@ Releases are automatic: every push to `main` that touches code runs
 Commits (`scripts/next-version.sh`) and publishes a GitHub release. Nothing
 has to be tagged by hand.
 
+Each platform stamps that version into `Cargo.toml` and `Cargo.lock`
+(`scripts/stamp-version.sh`) and builds with `--locked`. Releases therefore ship
+exactly the dependency versions in `Cargo.lock` that CI tested. If stamping
+would change anything in the lockfile besides our own crates' versions, the
+release fails.
+
 The base pipeline needs no secrets. Optional channels switch on when their
 secrets exist; without them the steps are skipped and the release still
 succeeds.

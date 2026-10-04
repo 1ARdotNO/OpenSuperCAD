@@ -93,9 +93,9 @@ jobs:
       - name: System libraries
         run: sudo apt-get update && echo "$GPUI_LINUX_DEPS" | xargs sudo apt-get install -y --no-install-recommends
       - name: Stamp version
-        run: sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
+        run: scripts/stamp-version.sh "$VERSION"
       - name: Build
-        run: cargo build --release -p opensupercad -p osc-mcp
+        run: cargo build --release --locked -p opensupercad -p osc-mcp
       - name: Tarball
         run: |
           name="opensupercad-$VERSION-$ARCH-linux"
@@ -171,11 +171,11 @@ jobs:
         with:
           key: release-macos
       - name: Stamp version
-        run: sed -i '' "1,/^version = \".*\"/s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+        run: scripts/stamp-version.sh "$VERSION"
       - name: Build (arm64 + x86_64)
         run: |
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
-            cargo build --release --target "$target" -p opensupercad -p osc-mcp
+            cargo build --release --locked --target "$target" -p opensupercad -p osc-mcp
           done
       - name: Import Developer ID certificate
         env:
@@ -236,9 +236,9 @@ jobs:
         with:
           key: release-windows
       - name: Stamp version
-        run: sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
+        run: scripts/stamp-version.sh "$VERSION"
       - name: Build
-        run: cargo build --release -p opensupercad -p osc-mcp
+        run: cargo build --release --locked -p opensupercad -p osc-mcp
       - name: Portable zip
         run: |
           name="opensupercad-$VERSION-windows-x86_64"
