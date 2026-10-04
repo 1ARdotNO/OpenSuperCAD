@@ -124,7 +124,8 @@ How the update is applied depends on how you installed OpenSuperCAD:
 | --- | --- |
 | Linux tarball (in a folder you can write to) | Replaced in place; click **Restart**. The previous binaries are kept as `*.old` |
 | macOS `.dmg` (`/Applications`) | The new `.dmg` is downloaded to *Downloads* and opened; drag OpenSuperCAD to Applications |
-| `.deb`, Arch package / AUR, Homebrew | Use your package manager; OpenSuperCAD tells you the command |
+| `.deb` or Arch `.pkg.tar.zst` from the release | The new package is downloaded to *Downloads* and verified. Installing it needs your password, so OpenSuperCAD shows the command (`sudo apt install …` / `sudo pacman -U …`) with a **Copy command** button |
+| Homebrew | Use Homebrew; OpenSuperCAD tells you the command |
 | Windows installer | The new installer is downloaded, verified and run silently; OpenSuperCAD closes and restarts when it's done |
 | Windows `.zip` | OpenSuperCAD links to the new `.zip` |
 

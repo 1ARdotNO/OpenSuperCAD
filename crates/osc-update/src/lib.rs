@@ -158,6 +158,9 @@ impl Release {
 pub enum Install {
     /// A release tarball unpacked into a folder we can write to.
     Tarball { dir: PathBuf },
+    /// A `.deb` or pacman package from our releases: we download the new
+    /// one; installing it needs `sudo`, so the user runs the command.
+    LinuxPackage { format: PackageFormat },
     /// Installed by a package manager; the user updates with `command`.
     Package {
         manager: &'static str,
@@ -169,6 +172,35 @@ pub enum Install {
     WindowsInstaller { dir: PathBuf },
     /// A development build or a read-only location.
     Unsupported { reason: String },
+}
+
+/// The Linux packages we publish.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageFormat {
+    Deb,
+    Pacman,
+}
+
+impl PackageFormat {
+    /// The format the system's package manager installs, if it is one of ours.
+    fn of_this_system() -> Option<Self> {
+        if Path::new("/usr/bin/pacman").exists() || Path::new("/etc/arch-release").exists() {
+            Some(Self::Pacman)
+        } else if Path::new("/usr/bin/dpkg").exists() {
+            Some(Self::Deb)
+        } else {
+            None
+        }
+    }
+
+    /// The command that installs the downloaded `package`.
+    pub fn install_command(self, package: &Path) -> String {
+        let quoted = format!("'{}'", package.to_string_lossy().replace('\'', r"'\''"));
+        match self {
+            Self::Deb => format!("sudo apt install {quoted}"),
+            Self::Pacman => format!("sudo pacman -U {quoted}"),
+        }
+    }
 }
 
 impl Install {
@@ -191,16 +223,12 @@ impl Install {
             };
         }
         if s.starts_with("/usr/") && !s.starts_with("/usr/local/") {
-            return if Path::new("/etc/arch-release").exists() {
-                Install::Package {
-                    manager: "pacman",
-                    command: "sudo pacman -Syu opensupercad (or your AUR helper for opensupercad-bin)",
-                }
-            } else {
-                Install::Package {
-                    manager: "apt",
-                    command: "download the new .deb and run sudo apt install ./opensupercad_*.deb",
-                }
+            return match PackageFormat::of_this_system() {
+                Some(format) => Install::LinuxPackage { format },
+                None => Install::Package {
+                    manager: "your package manager",
+                    command: "update the opensupercad package with it",
+                },
             };
         }
         if s.contains("/target/debug/") || s.contains("/target/release/") {
@@ -250,6 +278,14 @@ pub fn asset_name(version: Version, install: &Install, os: &str, arch: &str) -> 
         (Install::MacApp { .. }, "macos") => {
             Some(format!("OpenSuperCAD-{version}-macos-universal.dmg"))
         }
+        (Install::LinuxPackage { format }, "linux") => match (format, arch) {
+            (PackageFormat::Deb, "x86_64") => Some(format!("opensupercad_{version}-1_amd64.deb")),
+            (PackageFormat::Deb, "aarch64") => Some(format!("opensupercad_{version}-1_arm64.deb")),
+            (PackageFormat::Pacman, "x86_64") => {
+                Some(format!("opensupercad-{version}-1-x86_64.pkg.tar.zst"))
+            }
+            _ => None,
+        },
         (Install::WindowsInstaller { .. }, "windows") if arch == "x86_64" => {
             Some(format!("OpenSuperCAD-{version}-windows-x86_64-setup.exe"))
         }
@@ -506,8 +542,8 @@ fn tempfile_dir(dir: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Asset, Install, Release, UpdateError, Version, asset_name, install_tarball, parse_sums,
-        sha256_file, verify,
+        Asset, Install, PackageFormat, Release, UpdateError, Version, asset_name, install_tarball,
+        parse_sums, sha256_file, verify,
     };
     use std::path::Path;
 
@@ -562,7 +598,7 @@ mod tests {
         );
         assert!(matches!(
             Install::detect(Path::new("/usr/bin/opensupercad")),
-            Install::Package { .. }
+            Install::LinuxPackage { .. } | Install::Package { .. }
         ));
         // /usr/local is where tarballs go, not a package manager.
         assert!(!matches!(
@@ -619,6 +655,34 @@ mod tests {
             Some("OpenSuperCAD-0.2.0-macos-universal.dmg")
         );
         assert_eq!(asset_name(v, &tar, "windows", "x86_64"), None);
+
+        let deb = Install::LinuxPackage {
+            format: PackageFormat::Deb,
+        };
+        assert_eq!(
+            asset_name(v, &deb, "linux", "aarch64").as_deref(),
+            Some("opensupercad_0.2.0-1_arm64.deb")
+        );
+        let pacman = Install::LinuxPackage {
+            format: PackageFormat::Pacman,
+        };
+        assert_eq!(
+            asset_name(v, &pacman, "linux", "x86_64").as_deref(),
+            Some("opensupercad-0.2.0-1-x86_64.pkg.tar.zst")
+        );
+        assert_eq!(asset_name(v, &pacman, "linux", "aarch64"), None);
+    }
+
+    #[test]
+    fn package_install_commands_are_quoted() {
+        assert_eq!(
+            PackageFormat::Pacman.install_command(Path::new("/home/a b/x.pkg.tar.zst")),
+            "sudo pacman -U '/home/a b/x.pkg.tar.zst'"
+        );
+        assert_eq!(
+            PackageFormat::Deb.install_command(Path::new("/tmp/it's.deb")),
+            r"sudo apt install '/tmp/it'\''s.deb'"
+        );
     }
 
     #[test]

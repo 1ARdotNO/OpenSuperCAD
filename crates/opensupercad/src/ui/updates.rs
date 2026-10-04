@@ -157,6 +157,30 @@ fn install(release: Release, window: &mut Window, cx: &mut App) {
                     })
                     .detach();
                 }
+                Ok(Outcome::PackageDownloaded {
+                    version,
+                    path,
+                    command,
+                }) => window.push_notification(
+                    Notification::success(format!(
+                        "Downloaded and verified {} (SHA-256). Installing a system package \
+                         needs your password, so run this in a terminal, then restart \
+                         OpenSuperCAD:\n\n{command}",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ))
+                    .title(format!("Install {version}"))
+                    .autohide(false)
+                    .action(move |_, _, _| {
+                        let command = command.clone();
+                        Button::new("copy-install-command")
+                            .label("Copy command")
+                            .primary()
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(command.clone()))
+                            })
+                    }),
+                    cx,
+                ),
                 Ok(Outcome::Manual { how }) => {
                     window.push_notification(Notification::info(how).autohide(false), cx)
                 }
