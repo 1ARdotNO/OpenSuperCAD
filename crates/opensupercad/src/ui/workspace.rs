@@ -257,6 +257,7 @@ impl Workspace {
         }
         // After the window's root exists, so the dialog has somewhere to go.
         window.defer(cx, super::report::offer_crash_report);
+        window.defer(cx, super::updates::startup_check);
         ws
     }
 

@@ -220,6 +220,7 @@ as `~`. *Help → Show Crash Reports* opens the folder.
 opensupercad [PATH]                 open a project folder (or the folder of a .scad file)
 opensupercad mcp [--project DIR]    run the MCP server on stdio (for external agents)
 opensupercad doctor                 check OpenSCAD, git, snapshots and agents
+opensupercad update [--check]       update from GitHub Releases (see installation.md#updating)
 opensupercad --version
 ```
 
@@ -228,6 +229,7 @@ opensupercad --version
 | What | Linux | macOS |
 | --- | --- | --- |
 | Recent projects and threads | `~/.local/share/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
+| App settings (`app-settings.json`: update checks) | `~/.local/share/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
 | Crash reports | `~/.local/share/opensupercad/crashes/` | `~/Library/Application Support/OpenSuperCAD/crashes/` |
 | Agent overrides (`agents.json`) | `~/.config/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
 | Project settings | `<project>/.opensupercad/settings.json` | same |

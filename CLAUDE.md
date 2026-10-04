@@ -70,6 +70,7 @@ crates/
                 agent registry (Claude Code, Gemini CLI, Codex, Goose, OpenCode, custom)
   osc-mcp       built-in MCP server + `opensupercad-mcp` binary; ships the agent
                 skill (skill/SKILL.md) via MCP `instructions`
+  osc-update    self-update from GitHub Releases (curl + tar, SHA-256 verified)
   opensupercad  the GPUI desktop app (gpui-kit); `opensupercad mcp` runs the MCP server
 ```
 

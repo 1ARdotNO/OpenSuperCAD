@@ -158,6 +158,7 @@ pub fn commands() -> Vec<(&'static str, Rc<dyn Action>)> {
         ("Help: Request a Feature", a(RequestFeature)),
         ("Help: Open Issues Page", a(OpenIssues)),
         ("Help: Show Crash Reports", a(ShowCrashReports)),
+        ("Help: Check for Updates", a(CheckForUpdates)),
         ("App: Quit", a(Quit)),
     ]
 }

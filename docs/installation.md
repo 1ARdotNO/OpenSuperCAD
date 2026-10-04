@@ -78,7 +78,36 @@ and in `/Applications/OpenSCAD.app`.
 
 ```sh
 tar xzf opensupercad-<version>-x86_64-linux.tar.gz
-sudo install -m755 opensupercad-<version>-x86_64-linux/opensupercad{,-mcp} /usr/local/bin/
+install -Dm755 -t ~/.local/bin opensupercad-<version>-x86_64-linux/opensupercad{,-mcp}
+```
+
+Installed in a folder you own (like `~/.local/bin`), OpenSuperCAD can
+[update itself](#updating). In `/usr/local/bin`, run
+`sudo opensupercad update` instead.
+
+## Updating
+
+OpenSuperCAD checks GitHub for a new release when it starts (at most once a
+day; turn it off in **Settings → Check for updates on start**, or set
+`OPENSUPERCAD_NO_UPDATE_CHECK=1`). *Help → Check for Updates…* checks right
+away. Nothing is downloaded until you click **Update**.
+
+How the update is applied depends on how you installed OpenSuperCAD:
+
+| Installed from | Update |
+| --- | --- |
+| Linux tarball (in a folder you can write to) | Replaced in place; click **Restart**. The previous binaries are kept as `*.old` |
+| macOS `.dmg` (`/Applications`) | The new `.dmg` is downloaded to *Downloads* and opened; drag OpenSuperCAD to Applications |
+| `.deb`, Arch package / AUR, Homebrew | Use your package manager; OpenSuperCAD tells you the command |
+
+Every download is checked before anything changes: its SHA-256 must match
+the release's `SHA256SUMS` **and** the digest GitHub records for the asset
+(releases are immutable). Downloads use `curl` over HTTPS only. From a
+terminal:
+
+```sh
+opensupercad update --check   # only report
+opensupercad update           # download, verify and install
 ```
 
 ## Installing OpenSCAD
