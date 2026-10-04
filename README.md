@@ -25,6 +25,13 @@ back.
 
 ![OpenSuperCAD: an agent widening a phone stand, with the customizer, live preview and checkpoint](docs/images/screenshot.png)
 
+| | |
+| --- | --- |
+| ![Dragging a customizer slider rewrites the source and re-renders the gear](docs/images/customizer-gear.png) | ![A twisted vase in the live preview](docs/images/twisted-vase.png) |
+| **Customizer.** Sliders edit the source in place and re-render. | **Live preview.** Orbit, view presets, edges, axes and grid. |
+| ![Checkpoints in the git panel](docs/images/git-checkpoints.png) | ![The diff of a checkpoint](docs/images/checkpoint-diff.png) |
+| **Checkpoints.** Every iteration is saved on a side branch. | **Diffs.** See exactly what an iteration changed, then keep or restore it. |
+
 ## Install
 
 | Platform | |
@@ -53,6 +60,9 @@ opensupercad examples/phone-stand
    preview and customizer update live.
 4. Don't like the result? Restore the previous checkpoint from the thread or
    the git panel.
+
+More to try in [`examples/`](examples): a parametric box with a coloured
+lid, an animated crank (`$t`), a spur gear and a twisted vase.
 
 ## Use the tools from any agent
 
