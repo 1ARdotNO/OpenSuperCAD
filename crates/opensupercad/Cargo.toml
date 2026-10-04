@@ -27,7 +27,7 @@ base64 = "0.23.1"
 dirs = "7.0.0"
 gpui-kit = { version = "0.7.0", features = ["tree-sitter", "tree-sitter-diff"] }
 tree-sitter-openscad-ng = "0.7.1"
-tree-sitter = "0.26.13"
+tree-sitter = "0.27.0"
 
 [lints]
 workspace = true
