@@ -101,7 +101,7 @@ Mirrors the `1ARdotNO/wyrm` and `1ARdotNO/Jync` setups:
 | Workflow | Gate |
 | --- | --- |
 | `ci.yml` | fmt, clippy `-D warnings`, tests (real OpenSCAD via xvfb), MCP smoke test, app build on Linux + macOS, cargo-deny, dependency-review → **`ci-ok`** (the single required check) |
-| `codeql.yml` | CodeQL security-and-quality (Rust) |
+| CodeQL (GitHub default setup) | CodeQL for Rust and GitHub Actions, configured in repo settings (a workflow file would conflict with default setup) |
 | `trivy.yml` | Trivy fs scan, blocking on fixable HIGH/CRITICAL |
 | `zizmor.yml` | GitHub Actions hardening (SARIF) |
 | `rust-clippy.yml` | clippy SARIF to the Security tab |
