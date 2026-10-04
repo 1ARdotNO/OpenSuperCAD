@@ -49,3 +49,12 @@ Name: "{autodesktop}\OpenSuperCAD"; Filename: "{app}\opensupercad.exe"; Tasks: d
 
 [Run]
 Filename: "{app}\opensupercad.exe"; Description: "{cm:LaunchProgram,OpenSuperCAD}"; Flags: nowait postinstall skipifsilent
+; In-app updates run the installer silently with /relaunch=1 to start the new
+; version afterwards. Other silent installs (winget) don't start the app.
+Filename: "{app}\opensupercad.exe"; Flags: nowait; Check: ShouldRelaunch
+
+[Code]
+function ShouldRelaunch: Boolean;
+begin
+  Result := WizardSilent and (ExpandConstant('{param:relaunch|0}') = '1');
+end;

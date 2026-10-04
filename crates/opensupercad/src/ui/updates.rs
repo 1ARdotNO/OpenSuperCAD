@@ -140,6 +140,23 @@ fn install(release: Release, window: &mut Window, cx: &mut App) {
                     .autohide(false),
                     cx,
                 ),
+                Ok(Outcome::InstallerStarted { version }) => {
+                    window.push_notification(
+                        Notification::success(format!(
+                            "Installing {version} (SHA-256 verified). OpenSuperCAD closes now \
+                             and restarts when the installer is done."
+                        )),
+                        cx,
+                    );
+                    // Let the installer replace the files; it relaunches us.
+                    cx.spawn(async move |cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_secs(2))
+                            .await;
+                        cx.update(|cx| cx.quit());
+                    })
+                    .detach();
+                }
                 Ok(Outcome::Manual { how }) => {
                     window.push_notification(Notification::info(how).autohide(false), cx)
                 }

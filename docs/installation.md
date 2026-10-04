@@ -125,7 +125,8 @@ How the update is applied depends on how you installed OpenSuperCAD:
 | Linux tarball (in a folder you can write to) | Replaced in place; click **Restart**. The previous binaries are kept as `*.old` |
 | macOS `.dmg` (`/Applications`) | The new `.dmg` is downloaded to *Downloads* and opened; drag OpenSuperCAD to Applications |
 | `.deb`, Arch package / AUR, Homebrew | Use your package manager; OpenSuperCAD tells you the command |
-| Windows | OpenSuperCAD links to the new installer |
+| Windows installer | The new installer is downloaded, verified and run silently; OpenSuperCAD closes and restarts when it's done |
+| Windows `.zip` | OpenSuperCAD links to the new `.zip` |
 
 Every download is checked before anything changes: its SHA-256 must match
 the release's `SHA256SUMS` **and** the digest GitHub records for the asset

@@ -10,6 +10,9 @@ pub enum Outcome {
     Installed { version: Version, binary: PathBuf },
     /// The verified disk image was opened for the user to install.
     OpenedDmg { path: PathBuf },
+    /// The verified Windows installer is running; quit so it can replace
+    /// the app. It starts the new version when it's done.
+    InstallerStarted { version: Version },
     /// The user has to update through their package manager.
     Manual { how: String },
 }
@@ -52,7 +55,7 @@ pub fn apply(release: &Release) -> anyhow::Result<Outcome> {
             std::env::consts::ARCH,
         ) {
             Some(name) => name,
-            // Windows installs update through the installer for now.
+            // The portable Windows zip, or a platform without builds.
             None => {
                 return Ok(Outcome::Manual {
                     how: format!(
@@ -86,6 +89,16 @@ pub fn apply(release: &Release) -> anyhow::Result<Outcome> {
             std::process::Command::new("open").arg(&dmg).status()?;
             Ok(Outcome::OpenedDmg { path: dmg })
         }
+        Install::WindowsInstaller { .. } => {
+            // Kept after we exit: the installer runs from here.
+            let dir = std::env::temp_dir().join("opensupercad-update");
+            std::fs::create_dir_all(&dir)?;
+            let installer = client.download_verified(release, asset, &dir)?;
+            osc_update::run_windows_installer(&installer)?;
+            Ok(Outcome::InstallerStarted {
+                version: release.version,
+            })
+        }
         _ => unreachable!("handled above"),
     }
 }
@@ -109,6 +122,9 @@ pub fn run_cli(check_only: bool) -> anyhow::Result<()> {
         Outcome::OpenedDmg { path } => println!(
             "Downloaded and verified {}. Drag OpenSuperCAD to Applications to finish.",
             path.display()
+        ),
+        Outcome::InstallerStarted { version } => println!(
+            "Installing {version} (SHA-256 verified). OpenSuperCAD restarts when it's done."
         ),
         Outcome::Manual { how } => println!("{how}"),
     }
