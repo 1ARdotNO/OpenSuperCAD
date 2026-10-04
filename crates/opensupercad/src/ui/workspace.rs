@@ -65,6 +65,8 @@ pub struct Workspace {
     dirty: bool,
     disk_mtime: Option<SystemTime>,
     tabs: Vec<OpenTab>,
+    /// Keeps the active tab scrolled into view when the tabs overflow.
+    tab_scroll: ScrollHandle,
     active_tab: Option<usize>,
     diagnostics: Vec<Diagnostic>,
     preview: Entity<Preview>,
@@ -234,6 +236,7 @@ impl Workspace {
             dirty: false,
             disk_mtime: None,
             tabs: Vec::new(),
+            tab_scroll: ScrollHandle::new(),
             active_tab: None,
             diagnostics: Vec::new(),
             preview,
@@ -255,6 +258,11 @@ impl Workspace {
         if let Some(path) = start {
             ws.open_path(&path, window, cx);
         }
+        // Focus the editor so shortcuts like Ctrl-P work before the first click.
+        let editor = ws.editor.clone();
+        window.defer(cx, move |window, cx| {
+            editor.update(cx, |e, cx| e.focus(window, cx));
+        });
         // After the window's root exists, so the dialog has somewhere to go.
         window.defer(cx, super::report::offer_crash_report);
         window.defer(cx, super::updates::startup_check);
@@ -441,6 +449,8 @@ impl Workspace {
             self.render(cx);
         }
         self.apply_editor_diagnostics(cx);
+        self.tab_scroll.scroll_to_item(ix);
+        self.editor.update(cx, |e, cx| e.focus(window, cx));
         cx.notify();
     }
 
@@ -1509,7 +1519,12 @@ impl Workspace {
                 .child(fallback.to_owned())
                 .into_any_element();
         }
-        let mut bar = h_flex().h_full().min_w_0().overflow_x_hidden();
+        let mut bar = h_flex()
+            .id("editor-tabs")
+            .h_full()
+            .min_w_0()
+            .overflow_x_scroll()
+            .track_scroll(&self.tab_scroll);
         for (ix, tab) in self.tabs.iter().enumerate() {
             let active = Some(ix) == self.active_tab;
             let dirty = if active { self.dirty } else { tab.dirty };
@@ -1522,6 +1537,7 @@ impl Workspace {
                 h_flex()
                     .id(("tab", ix))
                     .h_full()
+                    .flex_shrink_0()
                     .px_3()
                     .gap_1p5()
                     .border_r_1()

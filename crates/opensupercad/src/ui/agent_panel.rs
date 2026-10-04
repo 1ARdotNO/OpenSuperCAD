@@ -86,9 +86,8 @@ impl AgentPanel {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
                 .submit_on_enter(true)
-                .placeholder(
-                    "Describe a design or a change… (Enter to send, Shift-Enter for a new line)",
-                )
+                // Short enough to fit the panel's default width.
+                .placeholder("Describe a design or a change…")
         });
         let ids: Vec<String> = registry.agents().iter().map(|a| a.id.clone()).collect();
         let subs = vec![
