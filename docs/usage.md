@@ -52,13 +52,14 @@ remembered per project, so you can come back to a conversation later.
 
 The **main file** is what gets previewed and what the agent works on by
 default: `main.scad` if present, otherwise the first `.scad` file. Change it
-in the **Settings** tab.
+in **Settings**.
 
-### Project settings
+### Settings
 
-Open the **Settings** tab in the project panel to choose the main file, the
+Open **File → Settings…** (`Ctrl/Cmd-,`, also in the OpenSuperCAD menu and the
+command palette) to choose the open project's main file, the
 default agent, whether to checkpoint after each AI turn, and the OpenSCAD
-geometry backend (Manifold is much faster on OpenSCAD 2024+). The tab also
+geometry backend (Manifold is much faster on OpenSCAD 2024+). The dialog also
 shows which OpenSCAD is in use, with **Download** (an official build, SHA-256
 verified, see [installation.md](installation.md#installing-openscad)),
 **Locate…** and *Find automatically*, toggles the theme and opens
@@ -109,6 +110,7 @@ itself.
 | Reload from disk | `Ctrl/Cmd-R` | Design → Reload and Preview |
 | View: top / bottom / left / right / front / back / diagonal | `Ctrl/Cmd-4` … `9`, `0` | View menu |
 | Reset view | `Ctrl/Cmd-Shift-0` | View → Reset View |
+| Settings… | `Ctrl/Cmd-,` | Edit → Preferences |
 | Save | `Ctrl/Cmd-S` | File → Save (also triggers preview, as with OpenSCAD's auto-reload) |
 
 Exports use the same file as the preview: while you edit a library that the

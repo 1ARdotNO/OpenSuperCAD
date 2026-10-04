@@ -162,6 +162,7 @@ pub fn commands() -> Vec<(&'static str, Rc<dyn Action>)> {
         ("OpenSCAD: Download (SHA-256 verified)", a(DownloadOpenScad)),
         ("OpenSCAD: Locate…", a(LocateOpenScad)),
         ("OpenSCAD: Find Automatically", a(AutoOpenScad)),
+        ("App: Settings…", a(OpenSettings)),
         ("App: Quit", a(Quit)),
     ]
 }

@@ -35,7 +35,6 @@ enum LeftTab {
     Files,
     Outline,
     Git,
-    Settings,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -1035,6 +1034,19 @@ impl Workspace {
         });
     }
 
+    /// Settings belong to the app (and the open project), not to a sidebar
+    /// tab: they open in a dialog from File → Settings… or Ctrl/Cmd-, (#84).
+    fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let settings = self.settings.clone();
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .title("Settings")
+                .w(px(560.))
+                .margin_top(px(60.))
+                .child(div().h(px(600.)).child(settings.clone()))
+        });
+    }
+
     fn command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let commands = super::picker::commands();
         let items = commands
@@ -1352,17 +1364,14 @@ impl Workspace {
                 LeftTab::Files => 0,
                 LeftTab::Outline => 1,
                 LeftTab::Git => 2,
-                LeftTab::Settings => 3,
             })
             .child(Tab::new().label("Files"))
             .child(Tab::new().label("Outline"))
             .child(Tab::new().label("Git"))
-            .child(Tab::new().label("Settings"))
             .on_click(cx.listener(|this, ix: &usize, _, cx| {
                 this.left_tab = match ix {
                     1 => LeftTab::Outline,
                     2 => LeftTab::Git,
-                    3 => LeftTab::Settings,
                     _ => LeftTab::Files,
                 };
                 cx.notify();
@@ -1472,7 +1481,6 @@ impl Workspace {
                     .into_any_element()
             }
             LeftTab::Git => self.git.clone().into_any_element(),
-            LeftTab::Settings => self.settings.clone().into_any_element(),
         };
         v_flex()
             .size_full()
@@ -2018,6 +2026,9 @@ impl gpui_kit::Render for Workspace {
             .on_action(cx.listener(Self::new_file))
             .on_action(cx.listener(Self::export_stl))
             .on_action(cx.listener(Self::export_as))
+            .on_action(
+                cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &DownloadOpenScad, window, cx| {
                 this.download_openscad(window, cx)
             }))
