@@ -94,6 +94,21 @@ impl Session {
         });
     }
 
+    /// Change one of the agent's settings (mode, model, effort…). Runs on
+    /// its own thread, so it works while a turn is in progress; the result
+    /// arrives as an `AgentEvent::ConfigOptions`.
+    pub fn set_option(&self, option: String, value: String) {
+        let client = self.client.lock().expect("lock").clone();
+        let session = self.session_id.lock().expect("lock").clone();
+        if let (Some(client), Some(session)) = (client, session) {
+            let _ = std::thread::Builder::new()
+                .name("agent-option".into())
+                .spawn(move || {
+                    let _ = client.set_config_option(&session, &option, &value);
+                });
+        }
+    }
+
     pub fn cancel(&self) {
         let client = self.client.lock().expect("lock").clone();
         let session = self.session_id.lock().expect("lock").clone();

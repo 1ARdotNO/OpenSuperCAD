@@ -13,11 +13,13 @@
 //! which can be consumed from async UI code or blocking threads alike.
 
 mod client;
+pub mod config;
 pub mod path;
 mod registry;
 
 pub use acp;
 pub use client::{AgentClient, AgentError, AgentEvent, PermissionChoice, SlashCommand, ToolStatus};
+pub use config::{ConfigChoice, ConfigOption};
 pub use registry::{AgentSpec, Registry};
 
 use std::path::Path;
