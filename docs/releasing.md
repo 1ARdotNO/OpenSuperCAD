@@ -99,4 +99,6 @@ workflow checks it every week. To bump to a newer LTS:
   only allows the default branch of that moment; otherwise deploys fail with
   "Branch "main" is not allowed to deploy to github-pages".
 - Settings → General → Releases: **immutable releases**, so a published
-  release's assets and `SHA256SUMS` can't be changed afterwards.
+  release's assets and `SHA256SUMS` can't be changed afterwards. **Required:**
+  the self-updater refuses releases GitHub doesn't report as immutable, so
+  turning this off stops every user's updates.
