@@ -36,8 +36,7 @@ pub struct GitPanel {
 
 impl GitPanel {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let message = cx
-            .new(|cx| InputState::new(window, cx).placeholder("Commit message (Enter to commit)"));
+        let message = cx.new(|cx| InputState::new(window, cx).placeholder("Commit message"));
         let subs =
             vec![
                 cx.subscribe_in(&message, window, |this, _, ev: &InputEvent, window, cx| {
