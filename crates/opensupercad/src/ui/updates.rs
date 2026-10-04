@@ -14,6 +14,53 @@ use crate::update::{self, Outcome};
 /// Automatic checks run at most this often.
 const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// The quiet background check behind the status bar's *Update* button:
+/// shortly after start, then hourly.
+const POLL_DELAY: Duration = Duration::from_secs(10);
+const POLL_INTERVAL: Duration = Duration::from_secs(60 * 60);
+
+/// A newer release found by the background check, shown in the status bar.
+#[derive(Default)]
+pub struct Available(pub Option<Release>);
+
+impl Global for Available {}
+
+/// The release the status bar offers, if any.
+pub fn available(cx: &App) -> Option<&Release> {
+    cx.try_global::<Available>().and_then(|a| a.0.as_ref())
+}
+
+/// Check for a newer release 10 s after start and then every hour, without
+/// notifications: a newer release only shows as *Update* in the status bar.
+/// Off with *Check for updates on start* or `OPENSUPERCAD_NO_UPDATE_CHECK`.
+pub fn start_polling(cx: &mut App) {
+    cx.set_global(Available::default());
+    cx.spawn(async move |cx| {
+        cx.background_executor().timer(POLL_DELAY).await;
+        loop {
+            let enabled = Store::default_location().app_settings().check_for_updates
+                && std::env::var_os("OPENSUPERCAD_NO_UPDATE_CHECK").is_none();
+            if enabled {
+                let found = cx
+                    .background_spawn(async { update::check() })
+                    .await
+                    .ok()
+                    .flatten();
+                cx.update(|cx| {
+                    let changed =
+                        available(cx).map(|r| r.version) != found.as_ref().map(|r| r.version);
+                    cx.set_global(Available(found));
+                    if changed {
+                        cx.refresh_windows();
+                    }
+                });
+            }
+            cx.background_executor().timer(POLL_INTERVAL).await;
+        }
+    })
+    .detach();
+}
+
 pub fn register(cx: &mut App) {
     cx.on_action(|_: &super::CheckForUpdates, cx| {
         // Deferred: menu actions run while the window is borrowed. With no

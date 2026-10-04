@@ -95,6 +95,7 @@ pub fn run(path: Option<PathBuf>) -> anyhow::Result<()> {
             cx.on_action(|_: &Quit, cx| cx.quit());
             report::register(cx);
             updates::register(cx);
+            updates::start_polling(cx);
             cx.on_action(|_: &ToggleTheme, cx| {
                 let mode = if cx.theme_is_dark() {
                     ThemeMode::Light

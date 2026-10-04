@@ -118,6 +118,11 @@ day; turn it off in **Settings → Check for updates on start**, or set
 `OPENSUPERCAD_NO_UPDATE_CHECK=1`). *Help → Check for Updates…* checks right
 away. Nothing is downloaded until you click **Update**.
 
+The status bar shows the OpenSuperCAD version you're running. While the app
+is open it also checks quietly (10 seconds after start, then every hour, with
+the same setting); when a newer release is out, **↑ Update to x.y.z** appears
+next to the version. Click it to update.
+
 How the update is applied depends on how you installed OpenSuperCAD:
 
 | Installed from | Update |
