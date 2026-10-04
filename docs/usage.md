@@ -5,7 +5,7 @@
 The layout follows Zed: one window per project, with docks around a central
 editor.
 
-![OpenSuperCAD](images/screenshot.png)
+![OpenSuperCAD](images/customizer-gear.png)
 
 ```
 ┌ Title bar: menus · project ▾ · branch ───────────── panel toggles ┐
@@ -33,6 +33,8 @@ editor.
 - **Customizer**: OpenSCAD's customizer, with the same groups, sliders,
   dropdowns, checkboxes and text fields, driven by the comments in your file.
   Changing a value edits the source in place and re-renders.
+
+  ![Customizer driving a spur gear](images/customizer-gear.png)
 - **Agent panel** (right): AI threads for the current project.
 - **Console** (tab next to the customizer): OpenSCAD's errors, warnings and
   `echo()` output. It opens automatically when a render fails.
@@ -143,6 +145,8 @@ project panel:
 - **Checkpoints**: one per AI turn, plus any you create yourself
   (`Ctrl/Cmd-Alt-S`).
 
+![Checkpoints in the git panel](images/git-checkpoints.png)
+
 Checkpoints are real git commits on a separate branch,
 `osc/checkpoints/<your-branch>`. They are built through a temporary index,
 so taking one **never touches your branch, your staged changes or your
@@ -150,6 +154,7 @@ working tree**. That means:
 
 - **View changes** (the eye icon, or **Changes** in the thread) shows a
   highlighted diff of what that iteration changed.
+  ![A checkpoint diff](images/checkpoint-diff.png)
 - **Restore** brings all project files back to a checkpoint. The current
   state is checkpointed first, so a restore can itself be undone.
 - **Commit** ("promote") turns the current state into a normal commit on your
@@ -168,7 +173,7 @@ If a project is not a git repository yet, the first checkpoint runs
 
 | Shortcut | Action |
 | --- | --- |
-| `Ctrl-Shift-P` | Command palette: every command, fuzzy-searchable |
+| `Ctrl-Shift-P` | Command palette: every command, fuzzy-searchable (see below) |
 | `Ctrl-P` | Find file in the project |
 | `Ctrl-Alt-O` | Recent projects |
 | `Ctrl-O` | Open folder (project) |
@@ -187,6 +192,8 @@ If a project is not a git repository yet, the first checkpoint runs
 | `F5` / `F6` / `F7` | Preview / Render / Export STL |
 | `Ctrl-4` … `Ctrl-0` | View presets |
 | `Ctrl-Q` | Quit |
+
+![The command palette](images/command-palette.png)
 
 ## Command line
 
