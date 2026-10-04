@@ -38,6 +38,12 @@
   ],
   "packageRules": [
     {
+      "description": "ubuntu-26.04 is not an available GitHub-hosted runner label yet. Lift this once actionlint and GitHub list it.",
+      "matchDatasources": ["github-runners"],
+      "matchPackageNames": ["ubuntu"],
+      "allowedVersions": "<26.04"
+    },
+    {
       "description": "Heavy automerge for everything: the CI suite (fmt + clippy -D warnings + tests against real OpenSCAD + Linux and macOS app builds + cargo-deny + dependency-review + CodeQL + Trivy) is the safety net, so anything that stays green merges itself.",
       "matchManagers": ["cargo", "github-actions"],
       "automerge": true
