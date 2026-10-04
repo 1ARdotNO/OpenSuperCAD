@@ -8,7 +8,7 @@ description = "Agent Client Protocol (ACP) client and agent registry for OpenSup
 
 [dependencies]
 acp = { package = "agent-client-protocol-schema", version = "1.10.2", default-features = false }
-async-channel = "2"
+async-channel = "2.5.0"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
