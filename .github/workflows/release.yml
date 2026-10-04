@@ -151,7 +151,7 @@ jobs:
     name: macos universal
     needs: version
     if: needs.version.outputs.version != ''
-    runs-on: macos-15
+    runs-on: macos-26
     permissions:
       contents: read
     env:
@@ -233,7 +233,7 @@ jobs:
             src/packaging/homebrew/opensupercad.rb.in > dist/opensupercad.rb
       - name: Checksums
         working-directory: dist
-        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+        run: sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
