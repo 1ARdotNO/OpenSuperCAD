@@ -123,7 +123,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    container: archlinux:base-devel
+    container: archlinux:base-devel@sha256:51dd3d24f7fba779e7c471caeee7804c50e8c134ad948e19685a1c83a42facc3
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
@@ -266,7 +266,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
-    container: archlinux:base-devel
+    container: archlinux:base-devel@sha256:51dd3d24f7fba779e7c471caeee7804c50e8c134ad948e19685a1c83a42facc3
     env:
       VERSION: ${{ needs.version.outputs.version }}
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
