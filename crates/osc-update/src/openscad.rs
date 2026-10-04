@@ -145,7 +145,7 @@ fn doesnt_run(output: &str) -> UpdateError {
 
 /// Refuse pins that could fetch from anywhere but HTTPS or name a folder
 /// outside `home`.
-fn check_pin(build: &Build) -> Result<()> {
+pub(crate) fn check_pin(build: &Build) -> Result<()> {
     let valid_version = !build.version.is_empty()
         && !build.version.starts_with('.')
         && build
@@ -291,10 +291,16 @@ fn unpack_dmg(file: &Path, into: &Path) -> Result<()> {
 
 /// Unpack with the `zip` crate, which rejects entries escaping `into`.
 fn unpack_zip(file: &Path, into: &Path) -> Result<()> {
+    unpack_zip_into(file, &into.join("openscad"))
+}
+
+/// Unpack a zip archive into `root`, dropping its single top-level folder
+/// (`OpenSCAD-<version>-x86-64/`, `node-v<version>-win-x64/`). Entries that
+/// would escape `root` are refused.
+pub(crate) fn unpack_zip_into(file: &Path, root: &Path) -> Result<()> {
     let bad = |e: zip::result::ZipError| UpdateError::Unpack(format!("bad zip archive: {e}"));
     let mut archive = zip::ZipArchive::new(std::fs::File::open(file)?).map_err(bad)?;
-    let root = into.join("openscad");
-    std::fs::create_dir_all(&root)?;
+    std::fs::create_dir_all(root)?;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(bad)?;
         let Some(rel) = entry.enclosed_name() else {
@@ -303,7 +309,6 @@ fn unpack_zip(file: &Path, into: &Path) -> Result<()> {
                 entry.name()
             )));
         };
-        // Drop the top-level folder (`OpenSCAD-<version>-x86-64/`).
         let rel: PathBuf = rel.components().skip(1).collect();
         if rel.as_os_str().is_empty() {
             continue;
@@ -333,7 +338,7 @@ fn single_folder(dir: &Path) -> Result<PathBuf> {
 
 /// Drop builds replaced by `keep`, best effort. Hidden folders (staging,
 /// other installs in progress) and files are left alone.
-fn remove_other_versions(home: &Path, keep: &str) {
+pub(crate) fn remove_other_versions(home: &Path, keep: &str) {
     let Ok(entries) = std::fs::read_dir(home) else {
         return;
     };

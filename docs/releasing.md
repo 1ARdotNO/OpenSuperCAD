@@ -71,6 +71,22 @@ removes a pinned snapshot (snapshots stay online for about a year). To bump:
 3. Update the pins and open a PR. The workflow installs and test-runs the new
    builds on Linux, macOS and Windows before it can merge.
 
+## Bumping the Node.js pins
+
+The Node.js the app downloads for the Claude Code and Codex adapters (when the
+user has none) is pinned in `crates/osc-update/node-pins.json`. The same
+workflow checks it every week. To bump to a newer LTS:
+
+1. Take the version from <https://nodejs.org/dist/index.json> (an `lts`
+   entry, 22 or newer, since the adapters require it).
+2. Download `SHASUMS256.txt` and `SHASUMS256.txt.sig` from
+   `https://nodejs.org/dist/v<version>/`, and check the signature with the
+   keyring from <https://github.com/nodejs/release-keys>
+   (`gpgv --keyring pubring.kbx SHASUMS256.txt.sig SHASUMS256.txt`).
+3. Copy the hashes of the `linux-x64`, `linux-arm64` and `darwin-*` `.tar.gz`
+   files and the `win-*` `.zip` files, plus their sizes, into the pins. Then
+   open a PR; the workflow installs and runs the new builds on every OS.
+
 ## One-time repository settings
 
 - Install the [Renovate GitHub App](https://github.com/apps/renovate).

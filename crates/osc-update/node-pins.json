@@ -1,0 +1,12 @@
+{
+  "comment": "Official Node.js builds OpenSuperCAD downloads when no Node.js is installed, to run the Claude Code and Codex ACP adapters. Sizes and SHA-256 come from https://nodejs.org/dist/v24.21.0/SHASUMS256.txt, whose signature was checked against the nodejs/release-keys keyring. See docs/releasing.md for how to bump them.",
+  "version": "24.21.0",
+  "builds": [
+    { "os": "linux", "arch": "x86_64", "kind": "tar.gz", "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-x64.tar.gz", "size": 58088022, "sha256": "6e1db87ef58b8819e5d5402eff1536491b18edd8eb7bee5ef7897876e88dc5ff" },
+    { "os": "linux", "arch": "aarch64", "kind": "tar.gz", "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-linux-arm64.tar.gz", "size": 57824078, "sha256": "724282c3b43aec998aa9527380465b45d229e021b58035f5f4f63095eabfe5d5" },
+    { "os": "macos", "arch": "aarch64", "kind": "tar.gz", "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-arm64.tar.gz", "size": 52909993, "sha256": "bed7eea5325e1108f32ce5228ddd6a5f0f08a499ee42aa7442aea583702f6057" },
+    { "os": "macos", "arch": "x86_64", "kind": "tar.gz", "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-darwin-x64.tar.gz", "size": 54203979, "sha256": "1462cb3b3046b815cf8ea436d3da450ec1a9f11dac7e5a46b0ada5305d7e8097" },
+    { "os": "windows", "arch": "x86_64", "kind": "zip", "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-x64.zip", "size": 37618919, "sha256": "158f7685b44de51f6c0df1d153526cbcd3e1bc739a8dfc607721cef75de9e541" },
+    { "os": "windows", "arch": "aarch64", "kind": "zip", "url": "https://nodejs.org/dist/v24.21.0/node-v24.21.0-win-arm64.zip", "size": 33679608, "sha256": "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921" }
+  ]
+}

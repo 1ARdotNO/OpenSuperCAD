@@ -18,6 +18,7 @@ use std::process::{Command, Stdio};
 
 use serde::Deserialize;
 
+pub mod node;
 pub mod openscad;
 use sha2::{Digest, Sha256};
 

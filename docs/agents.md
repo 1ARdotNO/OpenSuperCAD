@@ -33,12 +33,25 @@ isn't found are listed with an install hint. `opensupercad doctor` shows which
 agents are available.
 
 Claude Code and Codex talk ACP through an adapter that `npx` downloads on first
-use. The adapter needs Node.js even when the `claude` or `codex` CLI is
-installed natively, and it uses the same login. OpenSuperCAD looks for `npx`
-on your `PATH`, on the `PATH` your login shell sets up (nvm, fnm, Volta, asdf,
-mise), and in the usual install locations (`~/.volta/bin`, `~/.nvm`, Homebrew,
-`/usr/local/bin`). So it works when the app is started from the desktop menu or
-the Dock, not only from a terminal.
+use. The adapter is a Node.js program that runs next to the CLI, so it needs
+Node.js 22 or newer even when the `claude` or `codex` CLI is installed natively.
+It uses the same login.
+
+OpenSuperCAD looks for `npx` on your `PATH`, on the `PATH` your login shell
+sets up (nvm, fnm, Volta, asdf, mise), and in the usual install locations
+(`~/.volta/bin`, `~/.nvm`, Homebrew, `/usr/local/bin`). So it works when the
+app is started from the desktop menu or the Dock, not only from a terminal.
+
+If you have no Node.js, sending your first message offers to **download
+Node.js**: the official nodejs.org build (24 LTS, about 55 MB). Its SHA-256 is
+checked against a checksum pinned in OpenSuperCAD, and it is installed just for
+OpenSuperCAD in its data folder, without admin rights. Your own Node.js always
+wins when you have one. From a terminal:
+
+```sh
+opensupercad node            # which npx the agents use
+opensupercad node install    # download the pinned Node.js (SHA-256 verified)
+```
 
 ## Slash commands
 
