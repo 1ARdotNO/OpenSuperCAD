@@ -1821,10 +1821,13 @@ impl Workspace {
                         format!("Downloading OpenSCAD… {pct}%")
                     }
                 }
-                None => self
-                    .openscad_version
-                    .clone()
-                    .unwrap_or_else(|| "OpenSCAD not found".into()),
+                None => match &self.openscad_version {
+                    // OpenSCAD's snapshots are versioned by date; say whose
+                    // version it is (#72).
+                    Some(v) if v.starts_with("OpenSCAD") => v.clone(),
+                    Some(v) => format!("OpenSCAD {v}"),
+                    None => "OpenSCAD not found".into(),
+                },
             })
             .when_some(preview_msg, |el, m| el.child(m))
             .child(div().flex_1())
@@ -1834,6 +1837,21 @@ impl Workspace {
                 cursor.line + 1,
                 cursor.character + 1
             ))
+            .child(format!("OpenSuperCAD {}", env!("CARGO_PKG_VERSION")))
+            .when_some(super::updates::available(cx).map(|r| r.version), |el, v| {
+                el.child(
+                    Button::new("update-available")
+                        .icon(gpui_kit::assets::IconName::CircleArrowUp)
+                        .label(format!("Update to {v}"))
+                        .ghost()
+                        .xsmall()
+                        .text_color(theme.success)
+                        .tooltip("A new version of OpenSuperCAD is available")
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(CheckForUpdates), cx)
+                        }),
+                )
+            })
     }
 }
 
