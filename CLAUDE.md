@@ -106,6 +106,7 @@ Mirrors the `1ARdotNO/wyrm` and `1ARdotNO/Jync` setups:
 | `zizmor.yml` | GitHub Actions hardening (SARIF) |
 | `rust-clippy.yml` | clippy SARIF to the Security tab |
 | `sbom.yml` | SPDX SBOM to the dependency graph |
+| `pages.yml` | project site (`docs/index.html` + `docs/images`) to GitHub Pages |
 | `mega-linter.yml` | actionlint, yamllint, jsonlint, markdownlint, gitleaks |
 | `release.yml` | every code push to `main` → versioned GitHub Release: Linux x86_64/aarch64 tarballs + `.deb`, Arch `.pkg.tar.zst`, macOS universal `.dmg` |
 
