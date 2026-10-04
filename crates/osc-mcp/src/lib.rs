@@ -10,6 +10,7 @@
 //! the `initialize` result, which MCP clients put into the model's context
 //! automatically, and is also exposed as a prompt and a resource.
 
+pub mod control;
 mod tools;
 
 use std::io::{BufRead, Write};
@@ -44,8 +45,13 @@ pub struct Server {
 
 impl Server {
     pub fn new(project_root: PathBuf) -> anyhow::Result<Self> {
+        Self::with_control(project_root, None)
+    }
+
+    /// A server that also talks to a running OpenSuperCAD window.
+    pub fn with_control(project_root: PathBuf, control: Option<PathBuf>) -> anyhow::Result<Self> {
         Ok(Self {
-            tools: Tools::new(project_root)?,
+            tools: Tools::new(project_root)?.with_control(control),
         })
     }
 
@@ -348,10 +354,43 @@ mod tests {
             .as_str()
             .unwrap()
             .to_owned();
+        let r = call(&mut s, "diff_checkpoint", json!({}));
+        assert!(text(&r).contains("+cube(1);"), "{}", text(&r));
         let r = call(&mut s, "restore_checkpoint", json!({"id": first}));
         assert_eq!(r["isError"], false, "{}", text(&r));
         let src = std::fs::read_to_string(dir.path().join("main.scad")).unwrap();
         assert!(src.contains("width = 10"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn control_channel_forwards_snapshots_and_camera() {
+        use crate::control::{ControlReply, ControlRequest, serve};
+        use std::sync::{Arc, Mutex};
+        let (dir, _) = server();
+        let sock = dir.path().join("ctl.sock");
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        serve(&sock, move |r| {
+            log.lock().unwrap().push(r);
+            ControlReply::ok()
+        })
+        .unwrap();
+        let mut s = Server::with_control(dir.path().to_path_buf(), Some(sock)).unwrap();
+        let r = call(&mut s, "set_view", json!({"view": "top"}));
+        assert_eq!(r["isError"], false, "{}", text(&r));
+        call(&mut s, "get_parameters", json!({}));
+        let seen = seen.lock().unwrap();
+        assert!(seen.contains(&ControlRequest::Camera {
+            rotation: [0.0, 0.0, 0.0]
+        }));
+        assert!(seen.contains(&ControlRequest::SaveAll));
+        // Without a control channel set_view explains itself.
+        let (_d2, mut plain) = server();
+        assert_eq!(
+            call(&mut plain, "set_view", json!({"view": "top"}))["isError"],
+            true
+        );
     }
 
     #[test]
@@ -364,6 +403,8 @@ mod tests {
         let r = call(&mut s, "render", json!({}));
         assert_eq!(r["isError"], false, "{}", text(&r));
         assert!(text(&r).contains("bounding_box"));
+        let r = call(&mut s, "render", json!({"t": 0.5}));
+        assert_eq!(r["isError"], false, "{}", text(&r));
 
         let r = call(
             &mut s,

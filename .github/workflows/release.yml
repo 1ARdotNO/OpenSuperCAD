@@ -1,0 +1,295 @@
+# Continuous releases: every push to main that changes code produces a GitHub
+# Release. The version is derived from conventional commits since the last tag
+# (see scripts/next-version.sh). main is protected by the CI gates (ci-ok), so
+# whatever lands there has already passed fmt, clippy, tests and the security
+# checks.
+#
+# Artifacts:
+#   Linux   x86_64 + aarch64 tarballs and .deb (Debian/Ubuntu)
+#   Arch    x86_64 .pkg.tar.zst (plus packaging/arch/PKGBUILD for the AUR)
+#   macOS   universal (arm64 + x86_64) .dmg and tarball
+#   Homebrew cask (opensupercad.rb asset; pushed to a tap if configured)
+#
+# Optional repository secrets/variables enable more distribution channels;
+# each step is skipped when its secrets are absent (see docs/releasing.md):
+#   MACOS_CERTIFICATE (base64 .p12), MACOS_CERTIFICATE_PASSWORD,
+#   MACOS_SIGN_IDENTITY, APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD
+#   HOMEBREW_TAP_TOKEN + variable HOMEBREW_TAP (e.g. 1ARdotNO/homebrew-tap)
+#   AUR_SSH_PRIVATE_KEY
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "renovate.json"
+  workflow_dispatch:
+
+# Least privilege: contents:write only for the job that publishes.
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  GPUI_LINUX_DEPS: >-
+    pkg-config libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libvulkan-dev
+    libx11-dev libx11-xcb-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev
+    libfontconfig-dev libfreetype-dev libasound2-dev libzstd-dev
+
+jobs:
+  version:
+    name: compute version
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: next
+        run: |
+          version=$(scripts/next-version.sh)
+          if [[ -n "$version" ]] && git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version already exists; nothing to release"
+            version=""
+          fi
+          echo "next version: ${version:-<none>}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  linux:
+    name: linux ${{ matrix.arch }}
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-${{ matrix.arch }}
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $GPUI_LINUX_DEPS
+      - name: Stamp version
+        run: sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
+      - name: Build
+        run: cargo build --release -p opensupercad -p osc-mcp
+      - name: Tarball
+        run: |
+          name="opensupercad-$VERSION-$ARCH-linux"
+          mkdir -p "dist/$name"
+          cp target/release/opensupercad target/release/opensupercad-mcp \
+             packaging/linux/opensupercad.desktop packaging/linux/opensupercad.svg \
+             LICENSE-MIT LICENSE-APACHE README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -rf "dist/$name"
+      - name: Debian package
+        run: |
+          cargo install cargo-deb --locked
+          cargo deb -p opensupercad --no-build --output dist/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: dist/*
+          if-no-files-found: error
+
+  arch:
+    name: arch linux x86_64
+    needs: [version, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    container: archlinux:base-devel
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: linux-x86_64
+          path: linux
+      - name: makepkg
+        run: |
+          useradd -m builder
+          mkdir -p /tmp/pkg && cp "linux/opensupercad-$VERSION-x86_64-linux.tar.gz" /tmp/pkg/
+          sha=$(sha256sum "/tmp/pkg/opensupercad-$VERSION-x86_64-linux.tar.gz" | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$VERSION/" -e "s|@TARBALL@|opensupercad-$VERSION-x86_64-linux.tar.gz|" \
+            -e "s/@SHA256@/$sha/" packaging/arch/PKGBUILD.bin > /tmp/pkg/PKGBUILD
+          chown -R builder /tmp/pkg
+          su builder -c "cd /tmp/pkg && makepkg --nodeps --noconfirm"
+          mkdir -p dist && cp /tmp/pkg/*.pkg.tar.zst dist/
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: arch-x86_64
+          path: dist/*
+          if-no-files-found: error
+
+  macos:
+    name: macos universal
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: macos-15
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-macos
+      - name: Stamp version
+        run: sed -i '' "1,/^version = \".*\"/s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
+      - name: Build (arm64 + x86_64)
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --target "$target" -p opensupercad -p osc-mcp
+          done
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          keychain_password=$(openssl rand -hex 16)
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$keychain_password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+      - name: Bundle .app and .dmg (signed and notarized when configured)
+        env:
+          MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          mkdir -p dist
+          packaging/macos/bundle.sh "$VERSION" dist
+          name="opensupercad-$VERSION-macos-universal"
+          mkdir -p "dist/$name"
+          cp dist/OpenSuperCAD.app/Contents/MacOS/* LICENSE-MIT LICENSE-APACHE README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -rf "dist/$name" dist/OpenSuperCAD.app
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: macos-universal
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: publish release
+    needs: [version, linux, arch, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: src
+          persist-credentials: false
+      - name: Homebrew cask
+        run: |
+          sha=$(sha256sum "dist/OpenSuperCAD-$VERSION-macos-universal.dmg" | cut -d' ' -f1)
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha/" \
+            src/packaging/homebrew/opensupercad.rb.in > dist/opensupercad.rb
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "OpenSuperCAD v$VERSION" \
+            --generate-notes
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP: ${{ vars.HOMEBREW_TAP }}
+        if: env.HOMEBREW_TAP_TOKEN != '' && env.HOMEBREW_TAP != ''
+        run: |
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP}.git" tap
+          mkdir -p tap/Casks && cp dist/opensupercad.rb tap/Casks/opensupercad.rb
+          cd tap
+          git config user.name "opensupercad-release"
+          git config user.email "opensupercad-release@users.noreply.github.com"
+          git add Casks/opensupercad.rb
+          git commit -m "opensupercad $VERSION" && git push || echo "tap already up to date"
+
+  aur:
+    name: publish to AUR
+    needs: [version, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    container: archlinux:base-devel
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        with:
+          name: linux-x86_64
+          path: linux
+      - name: Push opensupercad-bin
+        if: env.AUR_SSH_PRIVATE_KEY != ''
+        run: |
+          pacman -Sy --noconfirm --needed git openssh
+          useradd -m builder
+          install -d -m700 -o builder /home/builder/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > /home/builder/.ssh/aur && chmod 600 /home/builder/.ssh/aur
+          printf 'Host aur.archlinux.org\n  IdentityFile ~/.ssh/aur\n  User aur\n  StrictHostKeyChecking accept-new\n' > /home/builder/.ssh/config
+          chown -R builder /home/builder/.ssh
+          sha=$(sha256sum "linux/opensupercad-$VERSION-x86_64-linux.tar.gz" | cut -d' ' -f1)
+          su builder -c "git clone ssh://aur@aur.archlinux.org/opensupercad-bin.git /tmp/aur"
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha/" packaging/aur/opensupercad-bin/PKGBUILD.in > /tmp/aur/PKGBUILD
+          chown builder /tmp/aur/PKGBUILD
+          su builder -c "cd /tmp/aur && makepkg --printsrcinfo > .SRCINFO && git add PKGBUILD .SRCINFO \
+            && git -c user.name=opensupercad-release -c user.email=opensupercad-release@users.noreply.github.com \
+               commit -m 'opensupercad-bin $VERSION' && git push" || echo "AUR already up to date"

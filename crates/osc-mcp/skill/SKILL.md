@@ -19,7 +19,8 @@ app. Use its tools instead of guessing.
 3. **Look.** Call `snapshot` after every meaningful change. The default views
    are iso, front, top and right. Add `bottom`, `back`, `left` or `diagonal`
    (from below) when undersides, overhangs or hidden faces matter. A `gimbal`
-   camera gives any other angle. **Study the images.** Check proportions,
+   camera gives any other angle. For animated designs (`$t`), pass `t`
+   (0..1) to look at a particular moment. **Study the images.** Check proportions,
    intersections, floating parts, wall thickness and orientation against what
    the user asked for.
 4. **Verify geometry.** `render` performs a full render and reports the
@@ -70,10 +71,15 @@ app. Use its tools instead of guessing.
 | `snapshot` | See the model as PNG images from one or more angles |
 | `render` | Run a full render: diagnostics, bounding box, triangle count |
 | `export` | Write STL/3MF/OFF/AMF/OBJ/DXF/SVG/PDF/PNG files |
+| `set_view` | Turn the user's viewport to a view, to show them what you mean |
 | `checkpoint`, `list_checkpoints`, `restore_checkpoint` | Manage iteration history |
+| `diff_checkpoint` | Review what an iteration changed (or what changed since it) |
 
 ## Etiquette
 
+- Your snapshots are also shown to the user in the thread. Mention which view
+  shows what you're describing, or call `set_view` to turn their viewport to
+  it.
 - Say what you changed and what the snapshots show. Never claim a model
   looks right without having looked at it.
 - Ask before deleting files or making sweeping rewrites of a user's design.

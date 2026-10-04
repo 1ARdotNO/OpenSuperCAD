@@ -1,0 +1,72 @@
+# Architecture
+
+OpenSuperCAD is a Cargo workspace. Only the app crate depends on the UI
+framework; everything else is plain Rust with unit and integration tests.
+
+```
+                    ┌───────────────────────────────────────┐
+                    │  opensupercad (GPUI app, gpui-kit)    │
+                    │  workspace · editor · preview ·       │
+                    │  customizer · agent panel · git panel │
+                    └──┬──────┬──────┬───────┬───────┬──────┘
+                       │      │      │       │       │
+          ┌────────────▼┐ ┌───▼────┐ │ ┌─────▼─────┐ │
+          │ osc-project │ │osc-git │ │ │ osc-agent │ │
+          │ projects,   │ │status, │ │ │ ACP client│ │
+          │ threads     │ │commit, │ │ │ + registry│ │
+          └─────────────┘ │checkpts│ │ └─────┬─────┘ │
+                          └────────┘ │       │ spawns agent; agent spawns ↓
+                              ┌──────▼──┐  ┌─▼──────────────────────────────┐
+                              │osc-engine│◄─┤ osc-mcp (opensupercad mcp)     │
+                              │ openscad │  │ MCP tools + bundled SKILL.md   │
+                              │ CLI,mesh,│  └────────────────────────────────┘
+                              │ raster   │
+                              └────┬─────┘
+                              ┌────▼─────┐
+                              │osc-syntax│ lexer · outline · customizer
+                              └──────────┘
+```
+
+## The agent loop
+
+```
+user ──prompt──► agent panel ──ACP session/prompt──► agent process (Claude Code, Gemini, …)
+                     ▲                                    │  model decides to use tools
+                     │ session/update (text, tool calls)  ▼
+                     │                         opensupercad MCP server (stdio)
+                     │                           ├─ edit_file / set_parameters ──► project files
+                     │                           ├─ snapshot ──► openscad --camera … → PNGs → model sees them
+                     │                           └─ render / export ──► openscad -o …
+                     │
+             file watcher reloads editor + preview
+             turn ends ──► osc-git checkpoint (osc/checkpoints/<branch>)
+```
+
+- **ACP** (`osc-agent`) uses the official `agent-client-protocol-schema` types
+  over a small synchronous JSON-RPC transport. Each agent connection runs on
+  its own threads and reports to the UI through an `async_channel`.
+  OpenSuperCAD advertises `fs/read_text_file` and `fs/write_text_file`, so
+  agent edits go through the app, confined to the project root.
+- **MCP** (`osc-mcp`) is a dependency-light JSON-RPC server over stdio. The
+  design skill is delivered through MCP `instructions` and as first-prompt
+  context, so it reaches agents whether or not they honour MCP instructions.
+- **Rendering** (`osc-engine`) always shells out to `openscad`, so behaviour
+  matches upstream exactly. For an interactive viewport, the model is
+  exported once as STL and rasterised in-process, which makes orbit and zoom
+  instant. Snapshots for the agent use OpenSCAD's own renderer (`--camera`,
+  `--viewall`, `--autocenter`), so the agent sees what OpenSCAD users see.
+- **Checkpoints** (`osc-git`) are built with `GIT_INDEX_FILE` pointing at a
+  temporary index: `git add -A` → `write-tree` → `commit-tree` →
+  `update-ref refs/heads/osc/checkpoints/<branch>`. Restore uses
+  `read-tree` + `checkout-index` the same way and deletes files absent from
+  the target. The user's index and branch are never involved.
+
+## Why these choices
+
+| Choice | Reason |
+| --- | --- |
+| GPUI via `gpui-kit` | Zed's UI framework, packaged with a complete component set (code editor with tree-sitter, docks, trees, inputs) and pinned to a published GPUI snapshot, so the build is reproducible from crates.io. |
+| `tree-sitter-openscad-ng` | The grammar maintained by the OpenSCAD organisation. |
+| Drive the `openscad` binary | 100% language compatibility, and every option and backend (CGAL or Manifold) available today. A native evaluator could come later. |
+| git CLI instead of libgit2 | The user's config, hooks, credentials and signing apply, as in Zed. |
+| Hand-rolled MCP/ACP transports | Tiny, synchronous and fully testable, with no async runtime mixing with GPUI's executor. Protocol types come from the official ACP schema crate. |

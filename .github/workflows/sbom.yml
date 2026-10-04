@@ -1,0 +1,33 @@
+# Generates an SBOM from the Rust source (Syft catalogs Cargo.lock) and submits it
+# to GitHub's dependency graph via the dependency-submission API. OpenSuperCAD ships no
+# container image, so this scans `path: .` rather than building a Dockerfile.
+# Native Cargo.lock parsing + CodeQL/Trivy/clippy SARIF already cover the rest.
+name: SBOM
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # required to submit to the dependency graph
+
+concurrency:
+  group: sbom-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sbom:
+    name: Syft SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Generate SBOM and submit to the dependency graph
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: .
+          format: spdx-json
+          artifact-name: opensupercad.spdx.json
+          dependency-snapshot: true

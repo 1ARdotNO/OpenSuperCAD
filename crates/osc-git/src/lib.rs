@@ -305,6 +305,48 @@ impl Repo {
         Ok(())
     }
 
+    /// Unified diff of what a checkpoint (or any commit) changed relative to
+    /// its parent. The first checkpoint of a branch is compared with the
+    /// branch commit it was taken from (its `Base:` trailer); a commit with
+    /// neither shows everything it added.
+    pub fn diff_commit(&self, rev: &str) -> Result<String> {
+        let id = self
+            .git([
+                "rev-parse",
+                "--verify",
+                "--quiet",
+                &format!("{rev}^{{commit}}"),
+            ])
+            .map_err(|_| GitError::UnknownCheckpoint(rev.to_owned()))?
+            .trim()
+            .to_owned();
+        let has_parent = self
+            .git(["rev-parse", "--verify", "--quiet", &format!("{id}^")])
+            .is_ok();
+        if !has_parent {
+            let message = self.git(["log", "-1", "--format=%B", &id])?;
+            let base = message
+                .lines()
+                .find_map(|l| l.strip_prefix("Base: "))
+                .map(str::trim)
+                .filter(|b| {
+                    self.git(["cat-file", "-e", &format!("{b}^{{commit}}")])
+                        .is_ok()
+                });
+            if let Some(base) = base {
+                return self.git(["diff", "--no-color", base, &id]);
+            }
+        }
+        self.git(["show", "--format=", "--root", "--no-color", "--patch", &id])
+    }
+
+    /// Unified diff from a checkpoint (or any commit) to the working tree.
+    pub fn diff_to_working_tree(&self, rev: &str) -> Result<String> {
+        let tree = self.snapshot_tree()?;
+        self.git(["diff", "--no-color", rev, &tree])
+            .map_err(|_| GitError::UnknownCheckpoint(rev.to_owned()))
+    }
+
     /// Commit the current working tree to the real branch, e.g. once an AI
     /// iteration is accepted.
     pub fn promote(&self, message: &str) -> Result<Option<String>> {
@@ -452,6 +494,38 @@ mod tests {
             repo.restore("nope"),
             Err(GitError::UnknownCheckpoint(_))
         ));
+    }
+
+    #[test]
+    fn diffs() {
+        let (_d, repo) = repo();
+        write(&repo, "a.scad", "cube(1);\n");
+        let c1 = repo.checkpoint("one").unwrap().unwrap();
+        write(&repo, "a.scad", "cube(2);\n");
+        let c2 = repo.checkpoint("two").unwrap().unwrap();
+        let first = repo.diff_commit(&c1.id).unwrap();
+        assert!(first.contains("+cube(1);"), "{first}");
+        let second = repo.diff_commit(&c2.id).unwrap();
+        assert!(
+            second.contains("-cube(1);") && second.contains("+cube(2);"),
+            "{second}"
+        );
+        write(&repo, "a.scad", "cube(3);\n");
+        let pending = repo.diff_to_working_tree(&c2.id).unwrap();
+        assert!(pending.contains("+cube(3);"), "{pending}");
+        assert!(repo.diff_commit("nope").is_err());
+
+        // First checkpoint after a commit: compared with that commit.
+        let (_d2, repo2) = super::tests::repo();
+        write(&repo2, "b.scad", "sphere(1);\n");
+        repo2.commit_all("base").unwrap();
+        write(&repo2, "b.scad", "sphere(2);\n");
+        let c = repo2.checkpoint("first").unwrap().unwrap();
+        let d = repo2.diff_commit(&c.id).unwrap();
+        assert!(
+            d.contains("-sphere(1);") && d.contains("+sphere(2);"),
+            "{d}"
+        );
     }
 
     #[test]

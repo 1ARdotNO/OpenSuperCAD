@@ -1,0 +1,14 @@
+# cargo (fmt+clippy), cargo-deny (deps/licenses), Trivy (vuln/secret/misconfig) and
+# CodeQL already cover Rust and security in their own workflows. MegaLinter's job is
+# only what those don't touch: workflow syntax, YAML/JSON/Markdown hygiene, and a
+# secrets sweep. Allow-list exactly those so docs CSS/HTML linters don't fight us.
+APPLY_FIXES: none
+ENABLE_LINTERS:
+  - ACTION_ACTIONLINT
+  - YAML_YAMLLINT
+  - JSON_JSONLINT
+  - MARKDOWN_MARKDOWNLINT
+  - REPOSITORY_GITLEAKS
+SHOW_ELAPSED_TIME: true
+FILEIO_REPORTER: false
+PRINT_ALPACA: false

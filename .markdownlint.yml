@@ -1,0 +1,7 @@
+# Relaxed rules that fight prose and tables the least.
+default: true
+MD013: false # line length
+MD033: false # inline HTML
+MD040: false # language on fenced code blocks
+MD041: false # first line heading
+MD060: false # table pipe spacing style

@@ -154,6 +154,16 @@ pub fn parameters(source: &str) -> Vec<Parameter> {
                 pending_description = Some((line_of(tok.span.start), body));
             }
             TokenKind::Keyword if text == "module" || text == "function" => break,
+            // `use <file>` / `include <file>` have no terminating `;`.
+            TokenKind::Keyword if text == "use" || text == "include" => {
+                while i + 1 < tokens.len()
+                    && !(tokens[i].kind == TokenKind::Operator && tokens[i].text(source) == ">")
+                    && !tokens[i + 1].text(source).contains('\n')
+                {
+                    i += 1;
+                }
+                pending_description = None;
+            }
             TokenKind::Identifier | TokenKind::Builtin | TokenKind::SpecialVariable => {
                 let next = next_significant(&tokens, i + 1);
                 let is_assign = next
@@ -500,6 +510,15 @@ after = 5;
         assert_eq!(p[7].value, Value::Vector(vec![10.0, 20.0, 30.0]));
         assert!(p[8].hidden);
         assert_eq!(p[8].line, 15);
+    }
+
+    #[test]
+    fn use_and_include_lines_do_not_hide_parameters() {
+        let src = "use <parts.scad>\ninclude <lib/x.scad>\n\nsize = 20; // [5:50]\npeg(size);\n";
+        let p = parameters(src);
+        assert_eq!(p.len(), 1);
+        assert_eq!(p[0].name, "size");
+        assert_eq!(p[0].line, 4);
     }
 
     #[test]

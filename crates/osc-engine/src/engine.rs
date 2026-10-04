@@ -163,6 +163,8 @@ pub struct Engine {
     pub backend: Option<String>,
     /// `--colorscheme=` for snapshots.
     pub colorscheme: Option<String>,
+    /// Release year of the OpenSCAD build (e.g. 2021 for 2021.01), if known.
+    pub year: Option<u32>,
 }
 
 impl Engine {
@@ -172,7 +174,22 @@ impl Engine {
             png_wrapper: Vec::new(),
             backend: None,
             colorscheme: None,
+            year: None,
         }
+    }
+
+    /// `--backend=…`, only for releases that understand it (2024+); older
+    /// OpenSCAD rejects unknown options and would fail every render.
+    fn backend_arg(&self) -> Option<String> {
+        let b = self.backend.as_ref()?;
+        let supported = self.year.is_none_or(|y| y >= 2024);
+        supported.then(|| format!("--backend={b}"))
+    }
+
+    /// Whether this OpenSCAD exports `color()` into 3MF files (2024 and
+    /// later; 2021.01 writes plain geometry).
+    pub fn exports_colors(&self) -> bool {
+        self.year.is_some_and(|y| y >= 2024)
     }
 
     /// Locate OpenSCAD: `$OPENSUPERCAD_OPENSCAD`, then `PATH`, then the usual
@@ -196,6 +213,7 @@ impl Engine {
             .ok_or(EngineError::NotFound)?;
         let mut engine = Engine::new(binary);
         engine.png_wrapper = default_png_wrapper();
+        engine.year = engine.version().ok().as_deref().and_then(parse_year);
         Ok(engine)
     }
 
@@ -230,8 +248,8 @@ impl Engine {
         let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("");
         ExportFormat::from_extension(ext)?;
         let mut extra = Vec::new();
-        if let Some(b) = &self.backend {
-            extra.push(format!("--backend={b}"));
+        if let Some(b) = self.backend_arg() {
+            extra.push(b);
         }
         self.run(req, out, &extra, &[])
     }
@@ -250,8 +268,8 @@ impl Engine {
         extra.push("--projection=perspective".into());
         if mode == RenderMode::Render {
             extra.push("--render".into());
-            if let Some(b) = &self.backend {
-                extra.push(format!("--backend={b}"));
+            if let Some(b) = self.backend_arg() {
+                extra.push(b);
             }
         }
         if let Some(scheme) = &self.colorscheme {
@@ -323,6 +341,42 @@ impl Engine {
         wrapper: &[String],
     ) -> Result<RenderOutput, EngineError> {
         let start = Instant::now();
+        // OpenSCAD ignores `-D` for special variables such as `$t`, so those
+        // are set in a wrapper that includes the design.
+        let (special, plain): (Vec<_>, Vec<_>) = req
+            .defines
+            .iter()
+            .cloned()
+            .partition(|(name, _)| name.starts_with('$'));
+        let wrapper_file;
+        let effective;
+        let req = if special.is_empty() {
+            req
+        } else {
+            let file = req.file.canonicalize().unwrap_or_else(|_| req.file.clone());
+            let mut source = String::new();
+            for (name, value) in &special {
+                source.push_str(&format!("{name} = {};\n", value.to_scad()));
+            }
+            source.push_str(&format!("include <{}>\n", file.display()));
+            wrapper_file = tempfile::Builder::new()
+                .prefix("osc-wrapper-")
+                .suffix(".scad")
+                .tempfile()
+                .map_err(|source| EngineError::Spawn {
+                    binary: self.binary.clone(),
+                    source,
+                })?;
+            std::fs::write(wrapper_file.path(), source).map_err(|source| EngineError::Spawn {
+                binary: self.binary.clone(),
+                source,
+            })?;
+            effective = Request {
+                file: wrapper_file.path().to_path_buf(),
+                defines: plain,
+            };
+            &effective
+        };
         let mut cmd = self.command(wrapper);
         cmd.args(self.args(req, out, extra));
         if let Some(dir) = req.file.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -334,9 +388,24 @@ impl Engine {
         })?;
         let mut console = String::from_utf8_lossy(&output.stderr).into_owned();
         console.push_str(&String::from_utf8_lossy(&output.stdout));
-        let diagnostics = parse_console(&console);
+        let mut diagnostics = parse_console(&console);
         let has_errors = diagnostics.iter().any(|d| d.severity == Severity::Error);
         let success = output.status.success() && !has_errors && out.exists();
+        if !success && !has_errors {
+            // Never fail silently: say what happened even without output.
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                message: format!(
+                    "OpenSCAD did not produce {} ({})",
+                    out.file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default(),
+                    output.status
+                ),
+                file: None,
+                line: None,
+            });
+        }
         Ok(RenderOutput {
             success,
             diagnostics,
@@ -345,6 +414,14 @@ impl Engine {
             output: success.then(|| out.to_path_buf()),
         })
     }
+}
+
+/// `OpenSCAD version 2021.01` → 2021.
+fn parse_year(version: &str) -> Option<u32> {
+    version
+        .split(|c: char| !c.is_ascii_digit())
+        .find(|part| part.len() == 4)
+        .and_then(|y| y.parse().ok())
 }
 
 fn find_in_path(name: &str) -> Option<PathBuf> {
@@ -405,6 +482,26 @@ mod tests {
     }
 
     #[test]
+    fn backend_only_for_new_releases() {
+        let mut e = Engine::new("openscad");
+        e.backend = Some("manifold".into());
+        e.year = Some(2021);
+        assert_eq!(e.backend_arg(), None);
+        e.year = Some(2026);
+        assert_eq!(e.backend_arg().as_deref(), Some("--backend=manifold"));
+    }
+
+    #[test]
+    fn version_year() {
+        assert_eq!(parse_year("OpenSCAD version 2021.01"), Some(2021));
+        assert_eq!(
+            parse_year("OpenSCAD version 2026.10.02 (git 1a2b)"),
+            Some(2026)
+        );
+        assert_eq!(parse_year("garbage"), None);
+    }
+
+    #[test]
     fn formats() {
         assert_eq!(
             ExportFormat::from_extension(".3MF").unwrap(),
@@ -432,6 +529,33 @@ mod tests {
         let (min, max) = mesh.bounds();
         assert!((max[0] - min[0] - 4.0).abs() < 1e-3);
         assert_eq!(out.echoes().count(), 1);
+
+        // Special variables ($t) take effect through the wrapper.
+        std::fs::write(&file, "translate([10 * $t, 0, 0]) cube(1);\n").unwrap();
+        let req_t = Request::new(&file).define("$t", Value::Number(0.5));
+        let out = engine.export(&req_t, &dir.path().join("t5.stl")).unwrap();
+        assert!(out.success, "{}", out.console);
+        let mesh = crate::mesh::Mesh::load_stl(&dir.path().join("t5.stl")).unwrap();
+        assert!(
+            (mesh.bounds().0[0] - 5.0).abs() < 1e-3,
+            "{:?}",
+            mesh.bounds()
+        );
+
+        if engine.exports_colors() {
+            std::fs::write(
+                &file,
+                "color(\"red\") cube(2);\ntranslate([5,0,0]) cube(1);\n",
+            )
+            .unwrap();
+            let out = engine
+                .export(&Request::new(&file), &dir.path().join("t.3mf"))
+                .unwrap();
+            assert!(out.success, "{}", out.console);
+            let mesh = crate::mesh::Mesh::load_3mf(&dir.path().join("t.3mf")).unwrap();
+            assert_eq!(mesh.colors.len(), mesh.triangles.len());
+            assert!(mesh.colors.contains(&[0xff, 0, 0, 0xff]));
+        }
 
         std::fs::write(&file, "cube(;\n").unwrap();
         let out = engine.check(&Request::new(&file), dir.path()).unwrap();

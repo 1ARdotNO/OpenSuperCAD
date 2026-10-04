@@ -52,12 +52,16 @@ pub(crate) fn io_err(path: &Path) -> impl FnOnce(std::io::Error) -> ProjectError
 #[serde(default)]
 pub struct ProjectSettings {
     /// The file rendered by default (relative to the project root).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub main_file: Option<String>,
     /// Agent id from the agent registry to use for new threads.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
     /// Checkpoint the working tree after every AI turn (default: on).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_checkpoint: Option<bool>,
     /// OpenSCAD `--backend` (e.g. `manifold`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub openscad_backend: Option<String>,
 }
 

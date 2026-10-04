@@ -1,0 +1,46 @@
+# Reports clippy findings to the Security tab (code scanning) as SARIF. This is
+# informational and non-blocking — the hard `clippy -D warnings` gate lives in
+# ci.yml. Uses dtolnay/rust-toolchain (the actions-rs actions are archived).
+name: rust-clippy analyze
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "19 18 * * 0"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: clippy-sarif-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-clippy-analyze:
+    name: clippy-sarif
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Install clippy-sarif
+        run: cargo install clippy-sarif sarif-fmt --locked
+      - name: Run clippy (SARIF)
+        run: |
+          cargo clippy --workspace --exclude opensupercad --all-targets --message-format=json \
+            | clippy-sarif | tee rust-clippy-results.sarif | sarif-fmt
+        continue-on-error: true
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+        with:
+          sarif_file: rust-clippy-results.sarif
+          wait-for-processing: true

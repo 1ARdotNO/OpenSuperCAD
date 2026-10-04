@@ -7,6 +7,8 @@ use osc_project::Project;
 use osc_syntax::customizer::{self, Value as ParamValue};
 use serde_json::{Value, json};
 
+use crate::control::{ControlClient, ControlReply, ControlRequest, SnapshotImage};
+
 enum Content {
     Text(String),
     Png(Vec<u8>),
@@ -19,6 +21,7 @@ pub struct Tools {
     project: Project,
     engine: Option<Result<Engine, String>>,
     scratch: tempfile::TempDir,
+    control: Option<ControlClient>,
 }
 
 struct ToolDef {
@@ -31,6 +34,10 @@ const DEFAULT_VIEWS: [View; 4] = [View::Iso, View::Front, View::Top, View::Right
 
 fn path_prop() -> Value {
     json!({ "type": "string", "description": "Project-relative path to a .scad file. Defaults to the project's main file." })
+}
+
+fn t_prop() -> Value {
+    json!({ "type": "number", "minimum": 0, "maximum": 1, "description": "Animation time: sets OpenSCAD's $t (0..1) to inspect a moment of an animated design." })
 }
 
 fn defines_prop() -> Value {
@@ -137,7 +144,8 @@ const TOOLS: &[ToolDef] = &[
                     },
                     "size": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2, "description": "[width, height] in pixels, default [640, 480]." },
                     "mode": { "type": "string", "enum": ["preview", "render"], "description": "preview (fast, F5) or render (full geometry, F6). Default preview." },
-                    "defines": defines_prop()
+                    "defines": defines_prop(),
+                    "t": t_prop()
                 }
             })
         },
@@ -148,7 +156,8 @@ const TOOLS: &[ToolDef] = &[
         schema: || {
             json!({
                 "type": "object",
-                "properties": { "path": path_prop(), "defines": defines_prop() }
+                "properties": { "path": path_prop(), "defines": defines_prop(),
+                    "t": t_prop() }
             })
         },
     },
@@ -161,7 +170,8 @@ const TOOLS: &[ToolDef] = &[
                 "properties": {
                     "path": path_prop(),
                     "output": { "type": "string", "description": "Project-relative output path, e.g. exports/part.stl" },
-                    "defines": defines_prop()
+                    "defines": defines_prop(),
+                    "t": t_prop()
                 },
                 "required": ["output"]
             })
@@ -179,9 +189,35 @@ const TOOLS: &[ToolDef] = &[
         },
     },
     ToolDef {
+        name: "set_view",
+        description: "Point the user's 3D viewport in the OpenSuperCAD window at the model from a named view or rotation, e.g. to show them the detail you are talking about. Does not return an image (use `snapshot` to see).",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "view": { "type": "string", "enum": ["iso", "front", "back", "left", "right", "top", "bottom", "diagonal"] },
+                    "rotation": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3, "description": "OpenSCAD $vpr rotation in degrees" }
+                }
+            })
+        },
+    },
+    ToolDef {
         name: "list_checkpoints",
         description: "List checkpoints, newest first.",
         schema: || json!({ "type": "object", "properties": { "limit": { "type": "integer", "default": 20 } } }),
+    },
+    ToolDef {
+        name: "diff_checkpoint",
+        description: "Show a unified diff of what a checkpoint changed (default: the latest one), or with `to_working_tree` what changed since it. Use it to review your own iteration.",
+        schema: || {
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": { "type": "string", "description": "Checkpoint id; defaults to the latest." },
+                    "to_working_tree": { "type": "boolean", "default": false }
+                }
+            })
+        },
     },
     ToolDef {
         name: "restore_checkpoint",
@@ -204,7 +240,18 @@ impl Tools {
             scratch: tempfile::Builder::new()
                 .prefix("opensupercad-mcp")
                 .tempdir()?,
+            control: None,
         })
+    }
+
+    /// Connect to a running OpenSuperCAD window (see [`crate::control`]).
+    pub fn with_control(mut self, socket: Option<PathBuf>) -> Self {
+        self.control = socket.map(ControlClient::new);
+        self
+    }
+
+    fn notify_app(&self, request: &ControlRequest) -> Option<ControlReply> {
+        self.control.as_ref()?.send(request).ok()
     }
 
     pub fn definitions(&self) -> Vec<Value> {
@@ -220,6 +267,10 @@ impl Tools {
 
     /// Run a tool and build the MCP `CallToolResult`.
     pub fn call(&mut self, name: &str, args: &Value) -> Value {
+        // Let the app flush unsaved edits so tools see what the user sees.
+        if !matches!(name, "list_checkpoints" | "set_view") {
+            self.notify_app(&ControlRequest::SaveAll);
+        }
         let result = match name {
             "project_info" => self.project_info(),
             "list_files" => Ok(vec![Content::Text(self.project.files().join("\n"))]),
@@ -235,6 +286,8 @@ impl Tools {
             "checkpoint" => self.checkpoint(args),
             "list_checkpoints" => self.list_checkpoints(args),
             "restore_checkpoint" => self.restore_checkpoint(args),
+            "diff_checkpoint" => self.diff_checkpoint(args),
+            "set_view" => self.set_view(args),
             _ => Err(format!("unknown tool `{name}`")),
         };
         let (content, is_error) = match result {
@@ -301,6 +354,10 @@ impl Tools {
                     .map_err(|_| format!("unsupported value for define `{name}`: {v}"))?;
                 req.defines.push((name.clone(), value));
             }
+        }
+        if let Some(t) = args.get("t").and_then(Value::as_f64) {
+            req.defines
+                .push(("$t".into(), ParamValue::Number(t.clamp(0.0, 1.0))));
         }
         Ok(req)
     }
@@ -460,6 +517,7 @@ impl Tools {
 
         let mut content = Vec::new();
         let mut notes = Vec::new();
+        let mut images = Vec::new();
         let mut diagnostics: Option<Vec<Diagnostic>> = None;
         for (camera, result) in results {
             match result {
@@ -470,6 +528,10 @@ impl Tools {
                     match out.output.as_ref().map(std::fs::read) {
                         Some(Ok(png)) => {
                             notes.push(camera.label());
+                            images.push(SnapshotImage {
+                                label: camera.label(),
+                                png_base64: base64::engine::general_purpose::STANDARD.encode(&png),
+                            });
                             content.push(Content::Png(png));
                         }
                         _ => notes.push(format!("{}: failed", camera.label())),
@@ -497,8 +559,37 @@ impl Tools {
             header.push('\n');
             header.push_str(&format_diagnostics(&d, true));
         }
+        // Show the snapshots in the app's agent thread too.
+        self.notify_app(&ControlRequest::Snapshot {
+            file: self.project.relative(&req.file),
+            images,
+        });
         content.insert(0, Content::Text(header));
         Ok(content)
+    }
+
+    fn set_view(&mut self, args: &Value) -> ToolResult {
+        let rotation = match (
+            args.get("view").and_then(Value::as_str),
+            args.get("rotation"),
+        ) {
+            (Some(name), _) => View::parse(name)
+                .ok_or_else(|| format!("unknown view `{name}`"))?
+                .rotation(),
+            (None, Some(r)) => serde_json::from_value::<[f64; 3]>(r.clone())
+                .map_err(|_| "rotation must be [x, y, z] in degrees".to_owned())?,
+            (None, None) => return Err("give `view` or `rotation`".into()),
+        };
+        match self.notify_app(&ControlRequest::Camera { rotation }) {
+            Some(reply) if reply.ok => Ok(vec![Content::Text(format!(
+                "The user's viewport now shows rotation {rotation:?}."
+            ))]),
+            Some(reply) => Err(reply.message.unwrap_or_else(|| "the app refused".into())),
+            None => Err(
+                "not connected to an OpenSuperCAD window; use `snapshot` to look at the model"
+                    .into(),
+            ),
+        }
     }
 
     fn render(&mut self, args: &Value) -> ToolResult {
@@ -588,6 +679,48 @@ impl Tools {
             Err(_) => Vec::new(),
         };
         Ok(vec![Content::Text(pretty(&list))])
+    }
+
+    fn diff_checkpoint(&mut self, args: &Value) -> ToolResult {
+        let repo = self.repo(false)?;
+        let id = match args.get("id").and_then(Value::as_str) {
+            Some(id) => id.to_owned(),
+            None => repo
+                .checkpoints(1)
+                .map_err(|e| e.to_string())?
+                .into_iter()
+                .next()
+                .map(|c| c.id)
+                .ok_or("there are no checkpoints yet")?,
+        };
+        let diff = if args
+            .get("to_working_tree")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            repo.diff_to_working_tree(&id)
+        } else {
+            repo.diff_commit(&id)
+        }
+        .map_err(|e| e.to_string())?;
+        const LIMIT: usize = 40_000;
+        let text = if diff.trim().is_empty() {
+            "No changes.".to_owned()
+        } else if diff.len() > LIMIT {
+            let cut = diff
+                .char_indices()
+                .take_while(|(i, _)| *i < LIMIT)
+                .last()
+                .map_or(0, |(i, _)| i);
+            format!(
+                "{}\n… diff truncated ({} bytes total)",
+                &diff[..cut],
+                diff.len()
+            )
+        } else {
+            diff
+        };
+        Ok(vec![Content::Text(text)])
     }
 
     fn restore_checkpoint(&mut self, args: &Value) -> ToolResult {

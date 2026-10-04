@@ -5,6 +5,51 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+description = "OpenSuperCAD: an AI-powered, Zed-style editor for OpenSCAD"
+
+[[bin]]
+name = "opensupercad"
+path = "src/main.rs"
+
 [dependencies]
-gpui = { package = "gpui-pre", version = "=0.3.7" }
-gpui-component = "0.7.0"
+osc-syntax.workspace = true
+osc-engine.workspace = true
+osc-project.workspace = true
+osc-git.workspace = true
+osc-agent.workspace = true
+osc-mcp.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+async-channel = "2"
+base64 = "0.22"
+dirs = "6"
+gpui-kit = { version = "0.7.0", features = ["tree-sitter", "tree-sitter-diff"] }
+tree-sitter-openscad-ng = "0.7.1"
+tree-sitter = "0.26"
+
+[lints]
+workspace = true
+
+[package.metadata.deb]
+name = "opensupercad"
+maintainer = "OpenSuperCAD contributors"
+copyright = "OpenSuperCAD contributors"
+license-file = ["../../LICENSE-MIT", "0"]
+extended-description = """\
+An AI-powered, Zed-style editor for OpenSCAD. Drive parametric CAD designs \
+with any Agent Client Protocol agent; a built-in MCP server lets the agent \
+render, look at snapshots from any angle and checkpoint every iteration in git."""
+section = "graphics"
+priority = "optional"
+depends = "$auto, git, libvulkan1"
+recommends = "openscad, mesa-vulkan-drivers"
+suggests = "xvfb, nodejs"
+assets = [
+  ["target/release/opensupercad", "usr/bin/", "755"],
+  ["target/release/opensupercad-mcp", "usr/bin/", "755"],
+  ["../../packaging/linux/opensupercad.desktop", "usr/share/applications/", "644"],
+  ["../../packaging/linux/opensupercad.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+  ["../../README.md", "usr/share/doc/opensupercad/README.md", "644"],
+]

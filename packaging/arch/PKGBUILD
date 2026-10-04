@@ -1,0 +1,47 @@
+# Maintainer: OpenSuperCAD contributors
+# Source package (suitable for the AUR). Release CI also publishes a prebuilt
+# opensupercad-<version>-1-x86_64.pkg.tar.zst with every GitHub release.
+pkgname=opensupercad
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="AI-powered, Zed-style editor for OpenSCAD"
+arch=('x86_64' 'aarch64')
+url="https://github.com/1ARdotNO/OpenSuperCAD"
+license=('MIT OR Apache-2.0')
+depends=('gcc-libs' 'glibc' 'git' 'libxkbcommon' 'libxkbcommon-x11' 'wayland' 'vulkan-icd-loader' 'fontconfig' 'freetype2' 'libxcb' 'alsa-lib' 'zstd')
+makedepends=('cargo' 'git')
+optdepends=('openscad: rendering, export and snapshots (strongly recommended)'
+            'xorg-server-xvfb: headless snapshots without a display'
+            'nodejs: run the Claude Code and Codex ACP adapters via npx')
+# A git source pinned to the release tag: git verifies the content by its
+# object hashes (the tag's commit), so no tarball checksum is needed.
+source=("$pkgname::git+$url.git#tag=v$pkgver")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release -p opensupercad -p osc-mcp
+}
+
+check() {
+  cd "$pkgname"
+  cargo test --frozen --workspace --exclude opensupercad
+}
+
+package() {
+  cd "$pkgname"
+  install -Dm755 target/release/opensupercad "$pkgdir/usr/bin/opensupercad"
+  install -Dm755 target/release/opensupercad-mcp "$pkgdir/usr/bin/opensupercad-mcp"
+  install -Dm644 packaging/linux/opensupercad.desktop "$pkgdir/usr/share/applications/opensupercad.desktop"
+  install -Dm644 packaging/linux/opensupercad.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/opensupercad.svg"
+  install -Dm644 LICENSE-MIT "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+  install -Dm644 LICENSE-APACHE "$pkgdir/usr/share/licenses/$pkgname/LICENSE-APACHE"
+}
