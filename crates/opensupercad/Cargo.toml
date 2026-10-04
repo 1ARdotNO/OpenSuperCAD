@@ -27,6 +27,8 @@ async-channel = "2.5.0"
 base64 = "0.23.1"
 dirs = "7.0.0"
 gpui-kit = { version = "0.7.0", features = ["tree-sitter", "tree-sitter-diff"] }
+# Only for `image::Frame`, which GPUI's `RenderImage` is built from; no codecs.
+image = { version = "0.25.10", default-features = false }
 tree-sitter-openscad-ng = "0.7.1"
 
 [build-dependencies]
