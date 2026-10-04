@@ -99,6 +99,17 @@ pub enum AgentEvent {
         title: String,
         choices: Vec<PermissionChoice>,
     },
+    /// The session's settings (mode, model, effort…), the whole list,
+    /// replacing any earlier one.
+    ConfigOptions {
+        session: String,
+        options: Vec<crate::ConfigOption>,
+    },
+    /// The agent switched its permission mode itself (e.g. left plan mode).
+    ModeChanged {
+        session: String,
+        mode: String,
+    },
     /// The agent wrote a file through `fs/write_text_file`.
     FileWritten {
         path: PathBuf,
@@ -271,11 +282,17 @@ impl AgentClient {
         cwd: &Path,
         mcp: Vec<schema::McpServer>,
     ) -> Result<String, AgentError> {
-        let resp: schema::NewSessionResponse = self.request(
+        let resp: Value = self.request(
             "session/new",
             &schema::NewSessionRequest::new(cwd).mcp_servers(mcp),
         )?;
-        Ok(resp.session_id.0.to_string())
+        let id = resp
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| AgentError::Protocol("session/new returned no sessionId".into()))?
+            .to_owned();
+        self.report_options(&id, &resp);
+        Ok(id)
     }
 
     /// Resume a previous session (agents advertising `loadSession`). The agent
@@ -286,11 +303,48 @@ impl AgentClient {
         cwd: &Path,
         mcp: Vec<schema::McpServer>,
     ) -> Result<(), AgentError> {
-        let _: Value = self.request(
+        let resp: Value = self.request(
             "session/load",
             &schema::LoadSessionRequest::new(session.to_owned(), cwd).mcp_servers(mcp),
         )?;
+        self.report_options(session, &resp);
         Ok(())
+    }
+
+    /// Change one of the session's settings ([`AgentEvent::ConfigOptions`]).
+    /// The agent's answer arrives as a new `ConfigOptions` event.
+    pub fn set_config_option(
+        &self,
+        session: &str,
+        option: &str,
+        value: &str,
+    ) -> Result<(), AgentError> {
+        if option == crate::config::MODE_OPTION {
+            let _: Value = self.request(
+                "session/set_mode",
+                &json!({"sessionId": session, "modeId": value}),
+            )?;
+            let _ = self.inner.events.send_blocking(AgentEvent::ModeChanged {
+                session: session.to_owned(),
+                mode: value.to_owned(),
+            });
+            return Ok(());
+        }
+        let resp: Value = self.request(
+            "session/set_config_option",
+            &json!({"sessionId": session, "configId": option, "value": value}),
+        )?;
+        self.report_options(session, &resp);
+        Ok(())
+    }
+
+    fn report_options(&self, session: &str, result: &Value) {
+        if let Some(options) = crate::config::parse(result) {
+            let _ = self.inner.events.send_blocking(AgentEvent::ConfigOptions {
+                session: session.to_owned(),
+                options,
+            });
+        }
     }
 
     /// Send a prompt; blocks until the turn ends. Updates stream as events.
@@ -451,6 +505,14 @@ fn handle_notification(inner: &Inner, method: &str, params: Option<&Value>) {
         schema::SessionUpdate::Plan(plan) => Some(AgentEvent::Plan {
             session,
             entries: plan.entries.into_iter().map(|e| e.content).collect(),
+        }),
+        schema::SessionUpdate::ConfigOptionUpdate(update) => serde_json::to_value(&update)
+            .ok()
+            .and_then(|v| crate::config::parse(&v))
+            .map(|options| AgentEvent::ConfigOptions { session, options }),
+        schema::SessionUpdate::CurrentModeUpdate(update) => Some(AgentEvent::ModeChanged {
+            session,
+            mode: update.current_mode_id.0.to_string(),
         }),
         schema::SessionUpdate::AvailableCommandsUpdate(update) => {
             Some(AgentEvent::AvailableCommands {
@@ -627,7 +689,10 @@ mod tests {
                     Some("initialize") => send(json!({"jsonrpc":"2.0","id":id,"result":{
                         "protocolVersion":1,"agentCapabilities":{"loadSession":true}}})),
                     Some("session/new") => {
-                        send(json!({"jsonrpc":"2.0","id":id,"result":{"sessionId":"s1"}}));
+                        send(json!({"jsonrpc":"2.0","id":id,"result":{"sessionId":"s1",
+                            "configOptions":[{"id":"model","name":"Model","category":"model",
+                                "type":"select","currentValue":"opus","options":[
+                                    {"value":"opus","name":"Opus"},{"value":"haiku","name":"Haiku"}]}]}}));
                         send(
                             json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1",
                             "update":{"sessionUpdate":"available_commands_update","availableCommands":[
@@ -674,6 +739,17 @@ mod tests {
                                       "content":[{"type":"content","content":{"type":"text","text":"4 views"}}]}}}),
                         );
                         send(json!({"jsonrpc":"2.0","id":id,"result":{"stopReason":"end_turn"}}));
+                    }
+                    Some("session/set_config_option") => {
+                        let value = msg["params"]["value"].clone();
+                        send(json!({"jsonrpc":"2.0","id":id,"result":{"configOptions":[
+                            {"id":"model","name":"Model","category":"model","type":"select",
+                             "currentValue":value,"options":[
+                                {"value":"opus","name":"Opus"},{"value":"haiku","name":"Haiku"}]}]}}));
+                        send(
+                            json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1",
+                            "update":{"sessionUpdate":"current_mode_update","currentModeId":"plan"}}}),
+                        );
                     }
                     Some("session/cancel") => {}
                     _ => send(
@@ -725,6 +801,10 @@ mod tests {
             seen
         });
 
+        client
+            .set_config_option(&session, "model", "haiku")
+            .unwrap();
+
         let stop = client
             .prompt(
                 &session,
@@ -747,6 +827,28 @@ mod tests {
         let seen = agent.join().unwrap();
         let events = collector.join().unwrap();
 
+        let models: Vec<&str> = events
+            .iter()
+            .filter_map(|e| match e {
+                AgentEvent::ConfigOptions { options, .. } => Some(options[0].current.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            models,
+            ["opus", "haiku"],
+            "reported at start, then after set"
+        );
+        assert!(events.contains(&AgentEvent::ModeChanged {
+            session: "s1".into(),
+            mode: "plan".into()
+        }));
+        assert!(
+            seen.iter()
+                .any(|m| m["method"] == "session/set_config_option"
+                    && m["params"]["configId"] == "model"
+                    && m["params"]["value"] == "haiku")
+        );
         assert!(events.contains(&AgentEvent::MessageChunk {
             session: "s1".into(),
             text: "Making a cube".into()

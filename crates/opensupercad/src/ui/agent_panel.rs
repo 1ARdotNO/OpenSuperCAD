@@ -7,6 +7,7 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{
     Escape, IndentInline, InputEvent, MoveDown, MoveUp, Paste, Position, Textarea, TextareaState,
 };
+use gpui_kit::component::menu::DropdownMenu;
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
@@ -17,7 +18,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use osc_agent::{AgentEvent, PermissionChoice, Registry, SlashCommand, ToolStatus};
+use osc_agent::{AgentEvent, ConfigOption, PermissionChoice, Registry, SlashCommand, ToolStatus};
 use osc_project::{Role, Store, Thread, ThreadSummary};
 
 use crate::session::{Options, Session, SessionEvent, Status};
@@ -67,6 +68,11 @@ pub struct AgentPanel {
     attachments: Vec<PathBuf>,
     /// Whether the running agent accepts images; unknown until it starts.
     accepts_images: Option<bool>,
+    /// The settings (mode, model, effort…) each agent offered when it last
+    /// ran, so they can be picked before its next session starts.
+    options: HashMap<String, Vec<ConfigOption>>,
+    /// The running session got the remembered choices.
+    options_applied: bool,
     /// The highlighted entry in the slash-command list.
     slash_ix: usize,
     /// Esc closed the list for the `/word` being typed.
@@ -166,6 +172,8 @@ impl AgentPanel {
             node_download: false,
             attachments: Vec::new(),
             accepts_images: None,
+            options: HashMap::new(),
+            options_applied: false,
             slash_ix: 0,
             slash_closed: false,
             _events: None,
@@ -290,6 +298,7 @@ impl AgentPanel {
         // resume it (#81).
         self.session_id = None;
         self.accepts_images = None;
+        self.options_applied = false;
     }
 
     pub fn new_thread(&mut self, cx: &mut Context<Self>) {
@@ -381,6 +390,66 @@ impl AgentPanel {
         }
         self.scroll.scroll_to_bottom();
         cx.notify();
+    }
+
+    /// A picker changed one of the agent's settings: remember it for this
+    /// project and apply it now, or when the agent next starts.
+    pub fn set_option(&mut self, option: String, value: String, cx: &mut Context<Self>) {
+        if let Some((root, ..)) = &self.project {
+            let _ = self
+                .store
+                .save_agent_option(root, &self.agent_id, &option, &value);
+        }
+        if let Some(o) = self
+            .options
+            .get_mut(&self.agent_id)
+            .and_then(|list| list.iter_mut().find(|o| o.id == option))
+        {
+            o.current = value.clone();
+        }
+        if let Some(session) = &self.session {
+            session.set_option(option, value);
+        }
+        cx.notify();
+    }
+
+    /// One dropdown per agent setting, in the composer's status row.
+    fn render_options(&self, theme: &gpui_kit::component::Theme) -> Vec<AnyElement> {
+        let Some(options) = self.options.get(&self.agent_id) else {
+            return Vec::new();
+        };
+        options
+            .iter()
+            .filter(|o| o.choices.len() > 1)
+            .map(|o| {
+                let risky = o.category.as_deref() == Some("mode") && skips_prompts(&o.current);
+                let list = o.clone();
+                let tooltip = match &o.description {
+                    Some(d) => format!("{}: {d}", o.name),
+                    None => o.name.clone(),
+                };
+                Button::new(SharedString::from(format!("option-{}", o.id)))
+                    .label(o.current_name().to_owned())
+                    .ghost()
+                    .xsmall()
+                    .when(risky, |b| b.text_color(theme.warning))
+                    .tooltip(tooltip)
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for c in &list.choices {
+                            menu = menu.menu_with_check(
+                                c.name.clone(),
+                                c.value == list.current,
+                                Box::new(super::SetAgentOption {
+                                    option: list.id.clone(),
+                                    value: c.value.clone(),
+                                }),
+                            );
+                        }
+                        menu
+                    })
+                    .into_any_element()
+            })
+            .collect()
     }
 
     /// *Attach…*: pick image files for the next prompt.
@@ -821,6 +890,37 @@ impl AgentPanel {
 
     fn on_agent_event(&mut self, event: AgentEvent, cx: &mut Context<Self>) {
         match event {
+            AgentEvent::ConfigOptions { mut options, .. } => {
+                options.sort_by_key(ConfigOption::order);
+                // A fresh session gets the choices remembered for this
+                // project; the agent answers with an updated list.
+                if !self.options_applied {
+                    self.options_applied = true;
+                    if let (Some((root, ..)), Some(session)) = (&self.project, &self.session) {
+                        for (id, value) in self.store.agent_options(root, &self.agent_id) {
+                            let offered = options.iter().any(|o| {
+                                o.id == id
+                                    && o.current != value
+                                    && o.choices.iter().any(|c| c.value == value)
+                            });
+                            if offered {
+                                session.set_option(id, value);
+                            }
+                        }
+                    }
+                }
+                self.options.insert(self.agent_id.clone(), options);
+            }
+            AgentEvent::ModeChanged { mode, .. } => {
+                if let Some(options) = self.options.get_mut(&self.agent_id) {
+                    for o in options
+                        .iter_mut()
+                        .filter(|o| o.category.as_deref() == Some("mode"))
+                    {
+                        o.current = mode.clone();
+                    }
+                }
+            }
             AgentEvent::MessageChunk { text, .. } => self.append(Role::Agent, &text),
             AgentEvent::ThoughtChunk { text, .. } => self.append(Role::Thought, &text),
             AgentEvent::ToolCall {
@@ -1183,6 +1283,7 @@ impl Render for AgentPanel {
                         el.child(Spinner::new().xsmall())
                     })
                     .child(div().flex_1())
+                    .children(self.render_options(&theme))
                     .child({
                         let no_images = self.accepts_images == Some(false);
                         Button::new("attach")
@@ -1226,6 +1327,13 @@ impl Render for AgentPanel {
 /// belonged to another thread (#81).
 fn early_session(running: bool, session_id: &Option<String>) -> Option<String> {
     running.then(|| session_id.clone()).flatten()
+}
+
+/// Permission modes that let the agent act without asking first, shown in
+/// the warning colour.
+fn skips_prompts(mode: &str) -> bool {
+    let mode = mode.to_ascii_lowercase();
+    mode.contains("bypass") || mode == "auto" || mode == "yolo"
 }
 
 /// The agent selector's entries, marking agents whose command isn't found.
@@ -1502,7 +1610,7 @@ mod tests {
     use super::{
         SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_attachments, decode_snapshots,
         decode_tool, early_session, encode_attachments, encode_tool, matching_commands,
-        slash_query, typed_command_hint,
+        skips_prompts, slash_query, typed_command_hint,
     };
 
     #[test]
@@ -1582,5 +1690,15 @@ mod tests {
         assert_eq!(decode_attachments(&text), Some(paths));
         assert!(decode_attachments("hello").is_none());
         assert!(decode_snapshots(&text).is_none());
+    }
+
+    #[test]
+    fn permissive_modes_are_flagged() {
+        for mode in ["bypassPermissions", "auto", "YOLO"] {
+            assert!(skips_prompts(mode), "{mode}");
+        }
+        for mode in ["default", "plan", "acceptEdits"] {
+            assert!(!skips_prompts(mode), "{mode}");
+        }
     }
 }

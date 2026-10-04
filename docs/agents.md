@@ -53,6 +53,24 @@ opensupercad node            # which npx the agents use
 opensupercad node install    # download the pinned Node.js (SHA-256 verified)
 ```
 
+## Mode, model and effort
+
+Agents that offer settings get small dropdowns under the prompt, one per
+setting, showing only what the current agent supports. Claude Code offers:
+
+- **Mode**: *Manual* (ask before every change), *Accept edits*, *Plan* (plan
+  first, then ask), and *Auto* (Claude decides which actions need your OK).
+  Modes that skip permission prompts are shown in the warning colour.
+- **Model**: Default, Sonnet, Opus, Fable, Haiku (whatever your account has).
+- **Effort**: how hard the model thinks, from *Low* to *Max*.
+
+A change applies right away, even mid-turn, and is remembered for the project
+(in OpenSuperCAD's data folder, not the shared `.opensupercad/settings.json`),
+so the agent starts with it next time. When the agent switches mode itself,
+for example leaving plan mode, the dropdown follows. The dropdowns appear
+once the agent has started in this session (your first message, or typing
+`/`).
+
 ## Images
 
 Show the agent what you mean: a photo of an object to copy, a sketch, or a

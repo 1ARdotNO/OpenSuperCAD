@@ -2026,6 +2026,13 @@ impl gpui_kit::Render for Workspace {
             .on_action(cx.listener(Self::new_file))
             .on_action(cx.listener(Self::export_stl))
             .on_action(cx.listener(Self::export_as))
+            // Handled here, not in the panel: the pickers' menus dispatch
+            // to whatever has focus.
+            .on_action(cx.listener(|this, a: &SetAgentOption, _, cx| {
+                this.agent.update(cx, |agent, cx| {
+                    agent.set_option(a.option.clone(), a.value.clone(), cx)
+                })
+            }))
             .on_action(
                 cx.listener(|this, _: &OpenSettings, window, cx| this.open_settings(window, cx)),
             )

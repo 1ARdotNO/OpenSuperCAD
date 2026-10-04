@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -153,6 +154,39 @@ impl Store {
             .join(format!("{:016x}", fnv1a(root.to_string_lossy().as_bytes())))
     }
 
+    /// The agent settings (mode, model, effort…) last chosen in this
+    /// project for `agent`: option id → value. Kept with the app's data,
+    /// not the shared project settings, since they're a personal choice.
+    pub fn agent_options(&self, root: &Path, agent: &str) -> BTreeMap<String, String> {
+        let all: BTreeMap<String, BTreeMap<String, String>> =
+            read_json(&self.agent_options_path(root))
+                .ok()
+                .flatten()
+                .unwrap_or_default();
+        all.get(agent).cloned().unwrap_or_default()
+    }
+
+    /// Remember `value` for `agent`'s option `option` in this project.
+    pub fn save_agent_option(
+        &self,
+        root: &Path,
+        agent: &str,
+        option: &str,
+        value: &str,
+    ) -> Result<()> {
+        let path = self.agent_options_path(root);
+        let mut all: BTreeMap<String, BTreeMap<String, String>> =
+            read_json(&path).ok().flatten().unwrap_or_default();
+        all.entry(agent.to_owned())
+            .or_default()
+            .insert(option.to_owned(), value.to_owned());
+        write_json(&path, &all)
+    }
+
+    fn agent_options_path(&self, root: &Path) -> PathBuf {
+        self.project_dir(root).join("agent-options.json")
+    }
+
     fn threads_dir(&self, root: &Path) -> PathBuf {
         self.project_dir(root).join("threads")
     }
@@ -207,6 +241,28 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn remembers_agent_options_per_project_and_agent() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::at(dir.path());
+        let (a, b) = (Path::new("/p/a"), Path::new("/p/b"));
+        assert!(store.agent_options(a, "claude-code").is_empty());
+        store
+            .save_agent_option(a, "claude-code", "model", "opus")
+            .unwrap();
+        store
+            .save_agent_option(a, "claude-code", "effort", "high")
+            .unwrap();
+        store
+            .save_agent_option(a, "claude-code", "model", "haiku")
+            .unwrap();
+        store.save_agent_option(a, "codex", "model", "x").unwrap();
+        let opts = store.agent_options(a, "claude-code");
+        assert_eq!(opts.len(), 2);
+        assert_eq!(opts["model"], "haiku");
+        assert!(store.agent_options(b, "claude-code").is_empty());
+    }
     use super::*;
     use crate::Role;
 

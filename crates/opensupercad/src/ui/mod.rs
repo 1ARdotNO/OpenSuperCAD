@@ -67,6 +67,15 @@ actions!(
     ]
 );
 
+/// Set one of the agent's settings (mode, model, effort…) from the agent
+/// panel's pickers.
+#[derive(Clone, PartialEq, Action)]
+#[action(namespace = osc, no_json)]
+pub struct SetAgentOption {
+    pub option: String,
+    pub value: String,
+}
+
 /// Open one of the recent projects (index into the recent list).
 #[derive(Clone, PartialEq, Action)]
 #[action(namespace = osc, no_json)]
