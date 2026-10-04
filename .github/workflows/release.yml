@@ -248,6 +248,9 @@ jobs:
           (cd dist && 7z a -tzip "$name.zip" "$name" >/dev/null)
           rm -rf "dist/$name"
       - name: Installer (Inno Setup)
+        env:
+          # Git Bash would rewrite ISCC's /D and /O switches into paths.
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           choco install innosetup --version "$INNOSETUP_VERSION" --no-progress -y
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
