@@ -4946,6 +4946,7 @@ dependencies = [
 name = "osc-engine"
 version = "0.1.0"
 dependencies = [
+ "dirs 7.0.0",
  "osc-syntax",
  "png 0.18.1",
  "quick-xml 0.42.0",
@@ -5005,11 +5006,13 @@ dependencies = [
 name = "osc-update"
 version = "0.1.0"
 dependencies = [
+ "osc-engine",
  "serde",
  "serde_json",
  "sha2 0.11.0",
  "tempfile",
  "thiserror 2.0.21",
+ "zip",
 ]
 
 [[package]]

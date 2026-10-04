@@ -8,7 +8,9 @@ You need three things:
 
 1. **OpenSuperCAD** itself (this page).
 2. **OpenSCAD**, the geometry engine OpenSuperCAD drives for rendering,
-   exporting and taking snapshots.
+   exporting and taking snapshots. If it isn't installed, OpenSuperCAD offers
+   to download the official build for you, verified against a pinned SHA-256
+   checksum (see [Installing OpenSCAD](#installing-openscad)).
 3. **An ACP agent** to design with, such as Claude Code, Gemini CLI, Codex,
    Goose or OpenCode. See [agents.md](agents.md).
 
@@ -70,9 +72,10 @@ first time and choose **Open**, or run:
 xattr -dr com.apple.quarantine /Applications/OpenSuperCAD.app
 ```
 
-Install OpenSCAD with `brew install --cask openscad`, or from
-<https://openscad.org/downloads.html>. OpenSuperCAD looks for it on `PATH`
-and in `/Applications/OpenSCAD.app`.
+If OpenSCAD isn't installed, OpenSuperCAD offers to download it on first
+start. You can also install it yourself with `brew install --cask openscad`
+or from <https://openscad.org/downloads.html>; OpenSuperCAD finds it on
+`PATH` and in `/Applications/OpenSCAD.app`.
 
 ## Windows
 
@@ -82,8 +85,10 @@ run it. It installs for your user by default (no administrator prompt) and
 adds OpenSuperCAD to the Start menu. A portable
 `opensupercad-<version>-windows-x86_64.zip` is also published.
 
-Install OpenSCAD from [openscad.org](https://openscad.org/downloads.html) (or
-`winget install OpenSCAD.OpenSCAD`). OpenSuperCAD finds it on `PATH` or in
+If OpenSCAD isn't installed, OpenSuperCAD offers to download it on first
+start. You can also install it yourself from
+[openscad.org](https://openscad.org/downloads.html) or with
+`winget install OpenSCAD.OpenSCAD`; OpenSuperCAD finds it on `PATH` or in
 `Program Files\OpenSCAD`, preferring the console build `openscad.com`. Agents
 installed with npm (`npx`, `gemini`) work as on the other platforms, and git
 comes from [Git for Windows](https://git-scm.com/download/win).
@@ -129,22 +134,64 @@ opensupercad update           # download, verify and install
 
 ## Installing OpenSCAD
 
+### Let OpenSuperCAD download it
+
+When no OpenSCAD is found, OpenSuperCAD offers to download one: in a dialog
+on start, in **Settings → OpenSCAD**, in the command palette (*OpenSCAD:
+Download*) and on the command line:
+
+```sh
+opensupercad openscad install   # download, verify and install
+opensupercad openscad           # which OpenSCAD is used, and from where
+```
+
+What happens:
+
+- Each OpenSuperCAD release pins one official OpenSCAD build per platform
+  from [files.openscad.org](https://files.openscad.org/snapshots/): the
+  AppImage on Linux (x86_64 and aarch64), the `.dmg` on macOS and the `.zip`
+  on Windows. The pins, with sizes and SHA-256 checksums, are in
+  [`openscad-pins.json`](../crates/osc-update/openscad-pins.json).
+- The download goes over HTTPS only. It is used only if its size and SHA-256
+  match the pin compiled into OpenSuperCAD, then it is unpacked and test-run
+  before it replaces anything.
+- It is installed for your user only, without admin rights, in the
+  `openscad` folder of the data directory (see
+  [usage.md](usage.md#data-locations)). Linux AppImages are extracted, so
+  FUSE isn't needed. They use the system's OpenGL libraries, which every
+  desktop has; on a server or minimal container install them first
+  (`sudo apt install libegl1 libgl1 libopengl0 libgbm1`).
+- The new OpenSCAD is used straight away, also by the agents' MCP server.
+
+The download is the unmodified upstream build, fetched directly from
+openscad.org. OpenSCAD is free software under the GPL; its source code is at
+<https://github.com/openscad/openscad>.
+
+### Use your own
+
 | Platform | Command |
 | --- | --- |
 | Debian / Ubuntu | `sudo apt install openscad` |
 | Arch | `sudo pacman -S openscad` |
 | macOS | `brew install --cask openscad` |
+| Windows | `winget install OpenSCAD.OpenSCAD` |
 | Anywhere | AppImage / nightly from <https://openscad.org/downloads.html> |
 
-Any release from 2021.01 onwards works. Recent nightlies with the Manifold
-backend render much faster: set `"openscad_backend": "manifold"` in the
-project settings (see [usage.md](usage.md#project-settings)).
+Any release from 2021.01 onwards works. Recent builds (2024 and later) are
+much better: the Manifold backend renders far faster (set
+`"openscad_backend": "manifold"` in the project settings, see
+[usage.md](usage.md#project-settings)) and `color()` shows in the preview.
 
-If OpenSCAD lives somewhere unusual, point OpenSuperCAD at it:
+OpenSuperCAD looks for OpenSCAD in this order:
 
-```sh
-export OPENSUPERCAD_OPENSCAD=/opt/openscad/bin/openscad
-```
+1. `$OPENSUPERCAD_OPENSCAD`
+2. the program you picked with **Locate…** (Settings → OpenSCAD, or
+   `opensupercad openscad locate PATH`; *Find automatically* or
+   `opensupercad openscad auto` forgets it)
+3. the build OpenSuperCAD downloaded
+4. `openscad` or `openscad-nightly` on `PATH`
+5. the usual install locations: `/Applications/OpenSCAD.app`, Homebrew,
+   Snap, Flatpak and `Program Files\OpenSCAD`
 
 ### Headless machines
 

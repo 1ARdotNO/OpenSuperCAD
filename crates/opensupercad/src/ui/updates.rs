@@ -16,11 +16,19 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub fn register(cx: &mut App) {
     cx.on_action(|_: &super::CheckForUpdates, cx| {
-        if let Some(window) = cx.active_window() {
-            window
-                .update(cx, |_, window, cx| check(true, window, cx))
-                .ok();
-        }
+        // Deferred: menu actions run while the window is borrowed. With no
+        // window manager there may be no active window, so fall back to the
+        // first one.
+        cx.defer(|cx| {
+            let window = cx
+                .active_window()
+                .or_else(|| cx.windows().into_iter().next());
+            if let Some(window) = window {
+                window
+                    .update(cx, |_, window, cx| check(true, window, cx))
+                    .ok();
+            }
+        });
     });
 }
 

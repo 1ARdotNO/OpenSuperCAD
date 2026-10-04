@@ -44,7 +44,9 @@ render, look at snapshots from any angle and checkpoint every iteration in git."
 section = "graphics"
 priority = "optional"
 depends = "$auto, git, libvulkan1"
-recommends = "openscad, mesa-vulkan-drivers"
+# libegl1 & co. are what the official OpenSCAD AppImage the app can download
+# expects from the system.
+recommends = "openscad, mesa-vulkan-drivers, libegl1, libgl1, libopengl0, libgbm1"
 suggests = "xvfb, nodejs"
 assets = [
   ["target/release/opensupercad", "usr/bin/", "755"],

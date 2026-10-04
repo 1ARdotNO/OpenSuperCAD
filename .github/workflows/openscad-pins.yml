@@ -1,0 +1,77 @@
+name: OpenSCAD pins
+
+# Renovate can't follow upstream's snapshot URLs, so check the OpenSCAD
+# builds the app downloads (crates/osc-update/openscad-pins.json): weekly,
+# by hand, and whenever the pins or the install code change. Each OS
+# downloads its pinned build, verifies it, installs it like the app does
+# and renders a cube with it.
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - crates/osc-update/**
+      - crates/osc-engine/src/managed.rs
+      - .github/workflows/openscad-pins.yml
+  push:
+    branches: [main]
+    paths:
+      - crates/osc-update/**
+      - crates/osc-engine/src/managed.rs
+      - .github/workflows/openscad-pins.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openscad-pins-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  urls:
+    name: pinned URLs resolve
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check every pinned URL
+        run: |
+          status=0
+          while read -r url; do
+            if curl -fsSIL --proto '=https' --proto-redir '=https' -o /dev/null "$url"; then
+              echo "ok  $url"
+            else
+              echo "::error::pinned OpenSCAD build is gone: $url (bump the pin, see docs/releasing.md)"
+              status=1
+            fi
+          done < <(jq -r '.builds[].url' crates/osc-update/openscad-pins.json | sort -u)
+          exit "$status"
+
+  install:
+    name: install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26, windows-2025]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: openscad-pins
+      # The official AppImage uses the system's OpenGL stack, which desktops
+      # have and the bare runner image doesn't.
+      - name: Desktop OpenGL libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libopengl0 libgbm1
+      - name: Download, verify, install and render
+        run: cargo test --locked -p osc-update --test openscad_download -- --ignored --nocapture

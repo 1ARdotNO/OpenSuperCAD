@@ -309,6 +309,11 @@ impl Tools {
     }
 
     fn engine(&mut self) -> Result<&Engine, String> {
+        // Look again while it's missing: the user may install OpenSCAD from
+        // the app during the session.
+        if !matches!(self.engine, Some(Ok(_))) {
+            self.engine = None;
+        }
         let engine = self.engine.get_or_insert_with(|| {
             Engine::discover()
                 .map(|mut e| {

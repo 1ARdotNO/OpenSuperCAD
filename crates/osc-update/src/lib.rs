@@ -14,9 +14,11 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use serde::Deserialize;
+
+pub mod openscad;
 use sha2::{Digest, Sha256};
 
 /// The repository releases come from.
@@ -336,8 +338,57 @@ impl Client {
         Ok(file)
     }
 
+    /// Download `url` into `out`, calling `progress` with the bytes received
+    /// so far while it runs. Verify the file before using it.
+    pub fn download(&self, url: &str, out: &Path, mut progress: impl FnMut(u64)) -> Result<()> {
+        let mut cmd = self.curl_command(url, Some(out));
+        cmd.stdout(Stdio::null()).stderr(Stdio::piped());
+        let mut child = cmd.spawn().map_err(|source| UpdateError::Spawn {
+            tool: "curl",
+            source,
+        })?;
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            progress(std::fs::metadata(out).map(|m| m.len()).unwrap_or(0));
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        };
+        if !status.success() {
+            let mut message = String::new();
+            if let Some(mut stderr) = child.stderr.take() {
+                let _ = stderr.read_to_string(&mut message);
+            }
+            return Err(UpdateError::Download {
+                url: url.into(),
+                message: message.trim().to_owned(),
+            });
+        }
+        progress(std::fs::metadata(out).map(|m| m.len()).unwrap_or(0));
+        Ok(())
+    }
+
     /// GET `url` over HTTPS only, into `out` or into memory.
     fn get(&self, url: &str, out: Option<&Path>) -> Result<Vec<u8>> {
+        let output = self
+            .curl_command(url, out)
+            .output()
+            .map_err(|source| UpdateError::Spawn {
+                tool: "curl",
+                source,
+            })?;
+        if !output.status.success() {
+            return Err(UpdateError::Download {
+                url: url.into(),
+                message: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
+            });
+        }
+        Ok(output.stdout)
+    }
+
+    /// `curl` for `url` (saved to `out`, if given), refusing anything but
+    /// HTTPS, redirects included.
+    fn curl_command(&self, url: &str, out: Option<&Path>) -> Command {
         let mut cmd = Command::new(&self.curl);
         cmd.args([
             "--fail",
@@ -349,8 +400,9 @@ impl Client {
             "--proto-redir",
             "=https",
             "--tlsv1.2",
+            // Generous: OpenSCAD builds are 50-85 MB.
             "--max-time",
-            "600",
+            "1800",
             "-H",
             "Accept: application/vnd.github+json",
             "-A",
@@ -359,18 +411,9 @@ impl Client {
         if let Some(out) = out {
             cmd.arg("--output").arg(out);
         }
-        cmd.arg(url);
-        let output = cmd.output().map_err(|source| UpdateError::Spawn {
-            tool: "curl",
-            source,
-        })?;
-        if !output.status.success() {
-            return Err(UpdateError::Download {
-                url: url.into(),
-                message: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
-            });
-        }
-        Ok(output.stdout)
+        // The URL goes last, after `--`, so it can never act as an option.
+        cmd.arg("--").arg(url);
+        cmd
     }
 }
 

@@ -159,6 +159,9 @@ pub fn commands() -> Vec<(&'static str, Rc<dyn Action>)> {
         ("Help: Open Issues Page", a(OpenIssues)),
         ("Help: Show Crash Reports", a(ShowCrashReports)),
         ("Help: Check for Updates", a(CheckForUpdates)),
+        ("OpenSCAD: Download (SHA-256 verified)", a(DownloadOpenScad)),
+        ("OpenSCAD: Locate…", a(LocateOpenScad)),
+        ("OpenSCAD: Find Automatically", a(AutoOpenScad)),
         ("App: Quit", a(Quit)),
     ]
 }

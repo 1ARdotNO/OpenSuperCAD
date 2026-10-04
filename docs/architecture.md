@@ -66,6 +66,14 @@ user ──prompt──► agent panel ──ACP session/prompt──► agent p
   Tarball installs are swapped in place by renaming (old binaries kept as
   `*.old`); the macOS app opens the verified `.dmg`; package-manager installs
   are left to the package manager.
+- **OpenSCAD downloads** (`osc-update::openscad`) fetch the official build
+  pinned in `openscad-pins.json` (URL, size, SHA-256) when no OpenSCAD is
+  installed. The pinned hash is compiled in; nothing is installed unless it
+  matches. Builds are unpacked into `<data>/openscad/<version>` and switched
+  with a `current` file; `osc_engine::managed` owns that layout and the
+  user's *Locate…* choice, so the app, `doctor` and the MCP server all find
+  the same OpenSCAD. The `OpenSCAD pins` workflow checks the pins weekly and
+  smoke-tests the install on Linux, macOS and Windows.
 - **Crash reports** come from a panic hook that writes a redacted text file.
   On the next start, the user is offered a prefilled GitHub issue to review.
   Nothing is sent automatically.

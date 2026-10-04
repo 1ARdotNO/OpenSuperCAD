@@ -131,7 +131,8 @@ impl Preview {
     /// Full render (F6 / on save): export a mesh and show it.
     pub fn render(&mut self, file: &Path, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
-            self.last_message = Some("OpenSCAD not found. Run `opensupercad doctor`.".into());
+            self.last_message =
+                Some("OpenSCAD not found: download it or locate it in Settings.".into());
             cx.notify();
             return;
         };

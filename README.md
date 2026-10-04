@@ -42,8 +42,9 @@ back.
 | Windows (x86_64) | `…-windows-x86_64-setup.exe` from the latest release, or the portable `.zip` |
 | From source | `cargo run --release -p opensupercad` |
 
-You also need OpenSCAD (`apt install openscad`, `pacman -S openscad`,
-`brew install --cask openscad`, `winget install OpenSCAD.OpenSCAD`) and at least one ACP agent. Run
+You also need OpenSCAD. If it isn't installed, OpenSuperCAD offers to
+download the official build for you (SHA-256 verified), or install it with
+your package manager. You also need at least one ACP agent. Run
 `opensupercad doctor` to check your setup.
 
 → **[Installation guide](docs/installation.md)** · **[Usage](docs/usage.md)** ·

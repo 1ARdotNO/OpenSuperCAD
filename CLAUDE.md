@@ -61,7 +61,7 @@ Linux box, install `openscad xvfb xauth` to run them as CI does. The GUI crate
 ```
 crates/
   osc-syntax    OpenSCAD lexer, outline and Customizer parameters (parse + rewrite)
-  osc-engine    drives the `openscad` CLI: export, PNG snapshots from cameras,
+  osc-engine    finds and drives the `openscad` CLI: export, PNG snapshots from cameras,
                 diagnostics; STL loader + software rasteriser for the viewport
   osc-git       git CLI wrapper; AI checkpoints on `osc/checkpoints/<branch>`
                 built with a temporary index (never touches the user's index)
@@ -70,7 +70,8 @@ crates/
                 agent registry (Claude Code, Gemini CLI, Codex, Goose, OpenCode, custom)
   osc-mcp       built-in MCP server + `opensupercad-mcp` binary; ships the agent
                 skill (skill/SKILL.md) via MCP `instructions`
-  osc-update    self-update from GitHub Releases (curl + tar, SHA-256 verified)
+  osc-update    self-update from GitHub Releases, and on-demand download of a
+                pinned official OpenSCAD build (curl, SHA-256 verified)
   opensupercad  the GPUI desktop app (gpui-kit); `opensupercad mcp` runs the MCP server
 ```
 
@@ -108,6 +109,7 @@ Mirrors the `1ARdotNO/wyrm` and `1ARdotNO/Jync` setups:
 | `rust-clippy.yml` | clippy SARIF to the Security tab |
 | `sbom.yml` | SPDX SBOM to the dependency graph |
 | `pages.yml` | project site (`docs/index.html` + `docs/images`) to GitHub Pages |
+| `openscad-pins.yml` | weekly + on pin changes: the pinned OpenSCAD URLs resolve, and the verified download installs and renders on Linux, macOS and Windows |
 | `mega-linter.yml` | actionlint, yamllint, jsonlint, markdownlint, gitleaks |
 | `release.yml` | every code push to `main` → versioned GitHub Release: Linux x86_64/aarch64 tarballs + `.deb`, Arch `.pkg.tar.zst`, macOS universal `.dmg`, Windows installer + `.zip` |
 
