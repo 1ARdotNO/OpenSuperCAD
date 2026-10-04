@@ -194,7 +194,7 @@ openscad.org. OpenSCAD is free software under the GPL; its source code is at
 Any release from 2021.01 onwards works. Recent builds (2024 and later) are
 much better: the Manifold backend renders far faster (set
 `"openscad_backend": "manifold"` in the project settings, see
-[usage.md](usage.md#project-settings)) and `color()` shows in the preview.
+[usage.md](usage.md#settings)) and `color()` shows in the preview.
 
 OpenSuperCAD looks for OpenSCAD in this order:
 

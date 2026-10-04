@@ -27,6 +27,7 @@ actions!(
         Quit,
         OpenFolder,
         CommandPalette,
+        OpenSettings,
         FindFile,
         RecentProjects,
         NewFile,
@@ -151,6 +152,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("secondary-q", Quit, None),
         KeyBinding::new("secondary-o", OpenFolder, ws),
         KeyBinding::new("secondary-shift-p", CommandPalette, ws),
+        KeyBinding::new("secondary-,", OpenSettings, ws),
         KeyBinding::new("secondary-p", FindFile, ws),
         KeyBinding::new("secondary-alt-o", RecentProjects, ws),
         KeyBinding::new("secondary-n", NewFile, ws),
@@ -185,6 +187,7 @@ fn bind_keys(cx: &mut App) {
 fn menus() -> Vec<Menu> {
     vec![
         Menu::new("OpenSuperCAD").items([
+            MenuItem::action("Settings…", OpenSettings),
             MenuItem::action("Toggle Light/Dark Theme", ToggleTheme),
             MenuItem::separator(),
             MenuItem::action("Quit", Quit),
@@ -201,6 +204,8 @@ fn menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Export as STL", ExportStl),
             MenuItem::action("Export…", ExportAs),
+            MenuItem::separator(),
+            MenuItem::action("Settings…", OpenSettings),
         ]),
         Menu::new("Design").items([
             MenuItem::action("Preview (OpenSCAD)", PreviewDesign),
