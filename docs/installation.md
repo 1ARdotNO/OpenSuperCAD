@@ -158,7 +158,9 @@ What happens:
 - It is installed for your user only, without admin rights, in the
   `openscad` folder of the data directory (see
   [usage.md](usage.md#data-locations)). Linux AppImages are extracted, so
-  FUSE isn't needed.
+  FUSE isn't needed. They use the system's OpenGL libraries, which every
+  desktop has; on a server or minimal container install them first
+  (`sudo apt install libegl1 libgl1 libopengl0 libgbm1`).
 - The new OpenSCAD is used straight away, also by the agents' MCP server.
 
 The download is the unmodified upstream build, fetched directly from

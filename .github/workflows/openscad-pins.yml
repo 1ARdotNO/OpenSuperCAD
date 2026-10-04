@@ -68,5 +68,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: openscad-pins
+      # The official AppImage uses the system's OpenGL stack, which desktops
+      # have and the bare runner image doesn't.
+      - name: Desktop OpenGL libraries (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libegl1 libgl1 libopengl0 libgbm1
       - name: Download, verify, install and render
         run: cargo test --locked -p osc-update --test openscad_download -- --ignored --nocapture

@@ -109,13 +109,11 @@ pub fn install(
         let root = single_folder(&unpacked)?;
         let binary = osc_engine::managed::binary_in(&root)
             .ok_or_else(|| UpdateError::Unpack(format!("no OpenSCAD executable in {file_name}")))?;
-        let version = osc_engine::Engine::new(&binary).version().map_err(|e| {
-            UpdateError::Unpack(format!("the downloaded OpenSCAD doesn't run: {e}"))
-        })?;
+        let version = osc_engine::Engine::new(&binary)
+            .version()
+            .map_err(|e| doesnt_run(&e.to_string()))?;
         if !version.contains("OpenSCAD") {
-            return Err(UpdateError::Unpack(format!(
-                "the downloaded OpenSCAD doesn't run: {version}"
-            )));
+            return Err(doesnt_run(&version));
         }
         let target = home.join(&build.version);
         let _ = std::fs::remove_dir_all(&target);
@@ -129,6 +127,20 @@ pub fn install(
     osc_engine::managed::installed(home)
         .map(|(_, binary)| binary)
         .ok_or_else(|| UpdateError::Unpack("the installed OpenSCAD went missing".into()))
+}
+
+/// Why the downloaded OpenSCAD failed its test run, with a hint for the
+/// common case: a Linux system without OpenGL libraries (servers, minimal
+/// containers), which the official AppImage expects from the system.
+fn doesnt_run(output: &str) -> UpdateError {
+    let mut message = format!("the downloaded OpenSCAD doesn't run: {}", output.trim());
+    if output.contains("error while loading shared libraries") {
+        message.push_str(
+            ". It needs your system's OpenGL libraries; on Debian/Ubuntu: \
+             sudo apt install libegl1 libgl1 libopengl0 libgbm1",
+        );
+    }
+    UpdateError::Unpack(message)
 }
 
 /// Refuse pins that could fetch from anywhere but HTTPS or name a folder
@@ -431,6 +443,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert!(unpack_zip(zip.path(), dir.path()).is_err());
         assert!(!dir.path().join("../../evil").exists());
+    }
+
+    #[test]
+    fn explains_missing_system_libraries() {
+        let e = doesnt_run(
+            "AppRun: error while loading shared libraries: libEGL.so.1: cannot open shared object file",
+        );
+        assert!(e.to_string().contains("sudo apt install libegl1"), "{e}");
+        assert!(!doesnt_run("Segmentation fault").to_string().contains("apt"));
     }
 
     #[test]
