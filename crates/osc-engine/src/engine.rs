@@ -192,26 +192,16 @@ impl Engine {
         self.year.is_some_and(|y| y >= 2024)
     }
 
-    /// Locate OpenSCAD: `$OPENSUPERCAD_OPENSCAD`, then `PATH`, then the usual
-    /// macOS application bundle locations.
+    /// Locate OpenSCAD: `$OPENSUPERCAD_OPENSCAD`, the user's choice, the
+    /// build OpenSuperCAD downloaded (see [`managed`](crate::managed)), then
+    /// `PATH` and the usual install locations.
     pub fn discover() -> Result<Self, EngineError> {
-        let binary = std::env::var_os("OPENSUPERCAD_OPENSCAD")
-            .map(PathBuf::from)
-            .filter(|p| p.is_file())
-            .or_else(|| find_in_path("openscad"))
-            .or_else(|| find_in_path("openscad-nightly"))
-            .or_else(|| {
-                [
-                    "/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD",
-                    "/Applications/OpenSCAD-2021.01.app/Contents/MacOS/OpenSCAD",
-                    "/opt/homebrew/bin/openscad",
-                ]
-                .into_iter()
-                .map(PathBuf::from)
-                .chain(windows_install_dirs())
-                .find(|p| p.is_file())
-            })
-            .ok_or(EngineError::NotFound)?;
+        Self::discover_in(&crate::managed::home())
+    }
+
+    /// [`discover`](Self::discover) with downloaded builds kept in `home`.
+    pub fn discover_in(home: &Path) -> Result<Self, EngineError> {
+        let binary = locate(home).ok_or(EngineError::NotFound)?;
         let mut engine = Engine::new(binary);
         engine.png_wrapper = default_png_wrapper();
         engine.year = engine.version().ok().as_deref().and_then(parse_year);
@@ -447,6 +437,34 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
+fn locate(home: &Path) -> Option<PathBuf> {
+    std::env::var_os("OPENSUPERCAD_OPENSCAD")
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .or_else(|| crate::managed::selected(home))
+        .or_else(|| crate::managed::installed(home).map(|(_, binary)| binary))
+        .or_else(|| find_in_path("openscad"))
+        .or_else(|| find_in_path("openscad-nightly"))
+        .or_else(|| {
+            let flatpak_user =
+                dirs::data_dir().map(|d| d.join("flatpak/exports/bin/org.openscad.OpenSCAD"));
+            [
+                // Apps started from the macOS Finder don't get the shell's PATH.
+                "/Applications/OpenSCAD.app/Contents/MacOS/OpenSCAD",
+                "/Applications/OpenSCAD-2021.01.app/Contents/MacOS/OpenSCAD",
+                "/opt/homebrew/bin/openscad",
+                "/usr/local/bin/openscad",
+                "/snap/bin/openscad",
+                "/var/lib/flatpak/exports/bin/org.openscad.OpenSCAD",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .chain(flatpak_user)
+            .chain(windows_install_dirs())
+            .find(|p| p.is_file())
+        })
+}
+
 /// Where the official installers put OpenSCAD on Windows.
 fn windows_install_dirs() -> Vec<PathBuf> {
     [
@@ -509,6 +527,25 @@ fn default_png_wrapper() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn user_choice_beats_the_downloaded_build() {
+        if std::env::var_os("OPENSUPERCAD_OPENSCAD").is_some() {
+            return;
+        }
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        let build = home.join("2026.10.03");
+        std::fs::create_dir_all(&build).unwrap();
+        std::fs::write(build.join("openscad"), "").unwrap();
+        crate::managed::set_current(home, "2026.10.03").unwrap();
+        assert_eq!(locate(home), Some(build.join("openscad")));
+
+        let chosen = home.join("chosen-openscad");
+        std::fs::write(&chosen, "").unwrap();
+        crate::managed::select(home, Some(&chosen)).unwrap();
+        assert_eq!(locate(home), Some(chosen));
+    }
 
     #[test]
     fn builds_arguments() {

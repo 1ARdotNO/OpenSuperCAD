@@ -1,0 +1,50 @@
+{
+  "comment": "Official OpenSCAD builds OpenSuperCAD downloads when no OpenSCAD is installed. Sizes and SHA-256 were checked against upstream's .sha256 files and OpenSCAD's GPG signatures (key E2EBDADD336FF516ADD51A78F3E12CCC22164A0F). See docs/releasing.md for how to bump them.",
+  "builds": [
+    {
+      "os": "linux",
+      "arch": "x86_64",
+      "version": "2026.10.03",
+      "kind": "appimage",
+      "url": "https://files.openscad.org/snapshots/OpenSCAD-2026.10.03-x86_64.AppImage",
+      "size": 84511224,
+      "sha256": "c8e562d0dd5a8a2e5015a66a16c81d432ff53c466070b1ed1cb800920020ea47"
+    },
+    {
+      "os": "linux",
+      "arch": "aarch64",
+      "version": "2023.09.11",
+      "kind": "appimage",
+      "url": "https://files.openscad.org/snapshots/OpenSCAD-2023.09.11.ai-aarch64.AppImage",
+      "size": 50246088,
+      "sha256": "84d7bb1c71e14b4e248a84fbe0a4b02f58bcbf5326f0ee81c8a4de3653a3b568"
+    },
+    {
+      "os": "macos",
+      "arch": "aarch64",
+      "version": "2026.10.03",
+      "kind": "dmg",
+      "url": "https://files.openscad.org/snapshots/OpenSCAD-2026.10.03.dmg",
+      "size": 73246508,
+      "sha256": "59372133bd070a76760a86f3ae6720636d7991aa5d7febcb68798fbcafcb7fc2"
+    },
+    {
+      "os": "macos",
+      "arch": "x86_64",
+      "version": "2026.10.03",
+      "kind": "dmg",
+      "url": "https://files.openscad.org/snapshots/OpenSCAD-2026.10.03.dmg",
+      "size": 73246508,
+      "sha256": "59372133bd070a76760a86f3ae6720636d7991aa5d7febcb68798fbcafcb7fc2"
+    },
+    {
+      "os": "windows",
+      "arch": "x86_64",
+      "version": "2026.10.03",
+      "kind": "zip",
+      "url": "https://files.openscad.org/snapshots/OpenSCAD-2026.10.03-x86-64.zip",
+      "size": 66205875,
+      "sha256": "e5dbc8060b8c1f10faec173fa15a148921025b6a0b3729050b55920202579a27"
+    }
+  ]
+}

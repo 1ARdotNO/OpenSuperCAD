@@ -13,6 +13,7 @@
 mod camera;
 mod diagnostics;
 mod engine;
+pub mod managed;
 pub mod mesh;
 pub mod raster;
 
