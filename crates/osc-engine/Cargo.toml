@@ -11,8 +11,8 @@ tempfile.workspace = true
 osc-syntax.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-png = "0.18"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+png = "0.18.1"
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 quick-xml = "0.42"
 
 [dev-dependencies]
