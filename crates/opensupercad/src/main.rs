@@ -6,6 +6,7 @@ mod doctor;
 mod pipeline;
 mod session;
 mod ui;
+mod update;
 
 use std::path::PathBuf;
 
@@ -14,6 +15,7 @@ USAGE:
     opensupercad [PATH]                 open a project folder (or the folder of a .scad file)
     opensupercad mcp [--project DIR]    run the OpenSuperCAD MCP server on stdio
     opensupercad doctor                 check OpenSCAD, git, snapshots and agents
+    opensupercad update [--check]       update from GitHub Releases (SHA-256 verified)
     opensupercad --version | --help";
 
 fn main() -> anyhow::Result<()> {
@@ -39,6 +41,7 @@ fn main() -> anyhow::Result<()> {
             osc_mcp::Server::with_control(project, control)?.serve_stdio()
         }
         Some("doctor") => doctor::run(),
+        Some("update") => update::run_cli(args.get(1).is_some_and(|a| a == "--check")),
         Some("--version" | "-V") => {
             println!("opensupercad {}", env!("CARGO_PKG_VERSION"));
             Ok(())

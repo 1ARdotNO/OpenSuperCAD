@@ -18,6 +18,7 @@ osc-project.workspace = true
 osc-git.workspace = true
 osc-agent.workspace = true
 osc-mcp.workspace = true
+osc-update.workspace = true
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -8,6 +8,7 @@ mod picker;
 mod preview;
 mod report;
 mod settings_panel;
+mod updates;
 mod workspace;
 
 use std::path::PathBuf;
@@ -57,6 +58,7 @@ actions!(
         RequestFeature,
         OpenIssues,
         ShowCrashReports,
+        CheckForUpdates,
     ]
 );
 
@@ -78,6 +80,7 @@ pub fn run(path: Option<PathBuf>) -> anyhow::Result<()> {
             bind_keys(cx);
             cx.on_action(|_: &Quit, cx| cx.quit());
             report::register(cx);
+            updates::register(cx);
             cx.on_action(|_: &ToggleTheme, cx| {
                 let mode = if cx.theme_is_dark() {
                     ThemeMode::Light
@@ -226,6 +229,7 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Request a Feature…", RequestFeature),
             MenuItem::action("Open Issues Page", OpenIssues),
             MenuItem::separator(),
+            MenuItem::action("Check for Updates…", CheckForUpdates),
             MenuItem::action("Show Crash Reports", ShowCrashReports),
         ]),
     ]

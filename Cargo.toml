@@ -8,6 +8,7 @@ default-members = [
   "crates/osc-git",
   "crates/osc-agent",
   "crates/osc-mcp",
+  "crates/osc-update",
 ]
 
 [workspace.package]
@@ -26,6 +27,7 @@ osc-project = { path = "crates/osc-project" }
 osc-git = { path = "crates/osc-git" }
 osc-agent = { path = "crates/osc-agent" }
 osc-mcp = { path = "crates/osc-mcp" }
+osc-update = { path = "crates/osc-update" }
 
 anyhow = "1.0.104"
 thiserror = "2.0.21"

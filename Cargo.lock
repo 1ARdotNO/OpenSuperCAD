@@ -4898,6 +4898,7 @@ dependencies = [
  "osc-mcp",
  "osc-project",
  "osc-syntax",
+ "osc-update",
  "serde",
  "serde_json",
  "tempfile",
@@ -4997,6 +4998,17 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "osc-update"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 

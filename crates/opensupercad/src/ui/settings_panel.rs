@@ -8,7 +8,7 @@ use gpui_kit::component::{ActiveTheme, IndexPath, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use osc_agent::Registry;
-use osc_project::{Project, ProjectSettings};
+use osc_project::{Project, ProjectSettings, Store};
 
 pub enum SettingsEvent {
     Changed(ProjectSettings),
@@ -244,6 +244,34 @@ impl Render for SettingsPanel {
                         }),
                 ),
             )
+            .child(row(
+                "Check for updates on start",
+                "At most once a day. Updates are only installed when you click Update, after their SHA-256 checksum is verified.",
+                h_flex()
+                    .gap_2()
+                    .child(
+                        Switch::new("check-updates")
+                            .checked(Store::default_location().app_settings().check_for_updates)
+                            .small()
+                            .on_click(cx.listener(|_, v: &bool, _, cx| {
+                                let store = Store::default_location();
+                                let mut settings = store.app_settings();
+                                settings.check_for_updates = *v;
+                                let _ = store.save_app_settings(&settings);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("check-now")
+                            .label("Check now")
+                            .small()
+                            .ghost()
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(super::CheckForUpdates), cx)
+                            }),
+                    )
+                    .into_any_element(),
+            ))
             .child(row(
                 "Agents",
                 "Add agents or override the built-in commands in agents.json.",

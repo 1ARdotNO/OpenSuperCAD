@@ -19,6 +19,30 @@ pub struct RecentProject {
     pub last_thread: Option<String>,
 }
 
+/// Settings that apply to the whole application rather than one project.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AppSettings {
+    /// Look for a new release on start-up (at most once a day).
+    #[serde(default = "yes")]
+    pub check_for_updates: bool,
+    /// Unix time of the last automatic update check.
+    #[serde(default)]
+    pub last_update_check: u64,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            check_for_updates: true,
+            last_update_check: 0,
+        }
+    }
+}
+
 /// Application state on disk (`~/.local/share/opensupercad` on Linux,
 /// `~/Library/Application Support/OpenSuperCAD` on macOS).
 #[derive(Clone, Debug)]
@@ -50,6 +74,17 @@ impl Store {
 
     pub fn dir(&self) -> &Path {
         &self.dir
+    }
+
+    pub fn app_settings(&self) -> AppSettings {
+        read_json(&self.dir.join("app-settings.json"))
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+
+    pub fn save_app_settings(&self, settings: &AppSettings) -> Result<()> {
+        write_json(&self.dir.join("app-settings.json"), settings)
     }
 
     fn recent_path(&self) -> PathBuf {
@@ -174,6 +209,22 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 mod tests {
     use super::*;
     use crate::Role;
+
+    #[test]
+    fn app_settings_round_trip() {
+        let data = tempfile::tempdir().unwrap();
+        let store = Store::at(data.path());
+        assert!(store.app_settings().check_for_updates);
+        let settings = AppSettings {
+            check_for_updates: false,
+            last_update_check: 42,
+        };
+        store.save_app_settings(&settings).unwrap();
+        assert_eq!(store.app_settings(), settings);
+        // Older files without the field keep the default (on).
+        std::fs::write(data.path().join("app-settings.json"), "{}").unwrap();
+        assert!(store.app_settings().check_for_updates);
+    }
 
     #[test]
     fn recent_projects_and_threads() {

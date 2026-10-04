@@ -60,6 +60,15 @@ user ──prompt──► agent panel ──ACP session/prompt──► agent p
   `update-ref refs/heads/osc/checkpoints/<branch>`. Restore uses
   `read-tree` + `checkout-index` the same way and deletes files absent from
   the target. The user's index and branch are never involved.
+- **Updates** (`osc-update`) read GitHub's latest-release API and download
+  with the system `curl` (HTTPS only). A download is accepted only if its
+  SHA-256 matches both the release's `SHA256SUMS` and GitHub's asset digest.
+  Tarball installs are swapped in place by renaming (old binaries kept as
+  `*.old`); the macOS app opens the verified `.dmg`; package-manager installs
+  are left to the package manager.
+- **Crash reports** come from a panic hook that writes a redacted text file.
+  On the next start, the user is offered a prefilled GitHub issue to review.
+  Nothing is sent automatically.
 
 ## Why these choices
 

@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub use store::{RecentProject, Store};
+pub use store::{AppSettings, RecentProject, Store};
 pub use thread::{Message, Role, Thread, ThreadSummary};
 
 #[derive(Debug, thiserror::Error)]

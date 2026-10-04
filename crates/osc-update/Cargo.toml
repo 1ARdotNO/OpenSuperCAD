@@ -1,0 +1,19 @@
+[package]
+name = "osc-update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Self-update for OpenSuperCAD from GitHub Releases, with SHA-256 verification"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+sha2 = "0.11.0"
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
