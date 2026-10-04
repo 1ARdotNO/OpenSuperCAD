@@ -2,8 +2,11 @@
 //!
 //! Downloads go through the system `curl` (HTTPS only) and archives are
 //! unpacked with `tar`, like the rest of OpenSuperCAD drives `openscad` and
-//! `git`. Nothing is installed unless the download's SHA-256 matches both the
-//! release's `SHA256SUMS` and the digest GitHub reports for the asset.
+//! `git`. Only immutable releases are used: GitHub locks their tag and
+//! assets once published, so files can't be swapped afterwards. Nothing is
+//! installed unless the download's SHA-256 matches both the release's
+//! `SHA256SUMS` and the digest GitHub records for the asset, and
+//! `SHA256SUMS` itself matches its own GitHub digest.
 //!
 //! How an update is applied depends on how OpenSuperCAD was installed:
 //! a tarball in a writable folder is replaced in place (keeping `.old`
@@ -49,6 +52,13 @@ pub enum UpdateError {
     },
     #[error("{0} is not listed in SHA256SUMS")]
     NotInSums(String),
+    #[error(
+        "release {0} is not immutable on GitHub, so its files could have been replaced; \
+         not updating from it"
+    )]
+    NotImmutable(String),
+    #[error("GitHub reports no SHA-256 digest for {0}; not installing it")]
+    NoDigest(String),
     #[error("unpacking {0} failed")]
     Unpack(String),
     #[error(transparent)]
@@ -94,7 +104,8 @@ pub struct Release {
 pub struct Asset {
     pub name: String,
     pub url: String,
-    /// `sha256:<hex>` as reported by GitHub, when available.
+    /// The SHA-256 GitHub records for the asset (`digest: sha256:<hex>`).
+    /// Required for anything we install, see [`verify`].
     pub sha256: Option<String>,
 }
 
@@ -109,6 +120,9 @@ impl Release {
             draft: bool,
             #[serde(default)]
             prerelease: bool,
+            /// GitHub's immutable releases: tag and assets are locked.
+            #[serde(default)]
+            immutable: bool,
             assets: Vec<RawAsset>,
         }
         #[derive(Deserialize)]
@@ -124,6 +138,9 @@ impl Release {
                 "{} is not a final release",
                 raw.tag_name
             )));
+        }
+        if !raw.immutable {
+            return Err(UpdateError::NotImmutable(raw.tag_name));
         }
         let version = Version::parse(&raw.tag_name)
             .ok_or_else(|| UpdateError::Release(format!("bad tag {}", raw.tag_name)))?;
@@ -330,8 +347,12 @@ pub fn verify(file: &Path, asset: &Asset, sums: &HashMap<String, String>) -> Res
     let expected = sums
         .get(&asset.name)
         .ok_or_else(|| UpdateError::NotInSums(asset.name.clone()))?;
+    let digest = asset
+        .sha256
+        .as_ref()
+        .ok_or_else(|| UpdateError::NoDigest(asset.name.clone()))?;
     let actual = sha256_file(file)?;
-    for want in std::iter::once(expected).chain(asset.sha256.as_ref()) {
+    for want in [expected, digest] {
         if *want != actual {
             return Err(UpdateError::Checksum {
                 name: asset.name.clone(),
@@ -339,6 +360,27 @@ pub fn verify(file: &Path, asset: &Asset, sums: &HashMap<String, String>) -> Res
                 actual,
             });
         }
+    }
+    Ok(())
+}
+
+/// `bytes` (a small file read into memory, like `SHA256SUMS`) must match
+/// the digest GitHub records for `asset`.
+fn check_digest(bytes: &[u8], asset: &Asset) -> Result<()> {
+    let want = asset
+        .sha256
+        .as_ref()
+        .ok_or_else(|| UpdateError::NoDigest(asset.name.clone()))?;
+    let actual: String = Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    if *want != actual {
+        return Err(UpdateError::Checksum {
+            name: asset.name.clone(),
+            expected: want.clone(),
+            actual,
+        });
     }
     Ok(())
 }
@@ -377,6 +419,7 @@ impl Client {
             .asset("SHA256SUMS")
             .ok_or_else(|| UpdateError::NoAsset("SHA256SUMS".into()))?;
         let sums = self.get(&sums_asset.url, None)?;
+        check_digest(&sums, sums_asset)?;
         let sums = parse_sums(&String::from_utf8_lossy(&sums));
         let file = dir.join(&asset.name);
         self.get(&asset.url, Some(&file))?;
@@ -543,14 +586,14 @@ fn tempfile_dir(dir: &Path) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Asset, Install, PackageFormat, Release, UpdateError, Version, asset_name, install_tarball,
-        parse_sums, sha256_file, verify,
+        Asset, Install, PackageFormat, Release, UpdateError, Version, asset_name, check_digest,
+        install_tarball, parse_sums, sha256_file, verify,
     };
     use std::path::Path;
 
     const JSON: &str = r#"{
         "tag_name": "v0.2.0", "html_url": "https://github.com/x/y/releases/tag/v0.2.0",
-        "draft": false, "prerelease": false,
+        "draft": false, "prerelease": false, "immutable": true,
         "assets": [
             {"name": "SHA256SUMS", "browser_download_url": "https://e/SHA256SUMS", "digest": null},
             {"name": "opensupercad-0.2.0-x86_64-linux.tar.gz",
@@ -576,6 +619,37 @@ mod tests {
         assert_eq!(a.sha256.as_deref(), Some("abc"));
         let pre = JSON.replace(r#""prerelease": false"#, r#""prerelease": true"#);
         assert!(Release::from_github_json(&pre).is_err());
+        // Only immutable releases, whose files can't be replaced.
+        let mutable = JSON.replace(r#""immutable": true"#, r#""immutable": false"#);
+        assert!(matches!(
+            Release::from_github_json(&mutable),
+            Err(UpdateError::NotImmutable(_))
+        ));
+        let unknown = JSON.replace(r#", "immutable": true"#, "");
+        assert!(matches!(
+            Release::from_github_json(&unknown),
+            Err(UpdateError::NotImmutable(_))
+        ));
+    }
+
+    #[test]
+    fn checks_small_files_against_their_digest() {
+        let hello = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+        let mut sums = Asset {
+            name: "SHA256SUMS".into(),
+            url: String::new(),
+            sha256: Some(hello.into()),
+        };
+        check_digest(b"hello", &sums).unwrap();
+        assert!(matches!(
+            check_digest(b"hellO", &sums),
+            Err(UpdateError::Checksum { .. })
+        ));
+        sums.sha256 = None;
+        assert!(matches!(
+            check_digest(b"hello", &sums),
+            Err(UpdateError::NoDigest(_))
+        ));
     }
 
     #[test]
@@ -710,7 +784,14 @@ mod tests {
             verify(&file, &asset, &sums),
             Err(UpdateError::Checksum { .. })
         ));
+        // GitHub reports no digest: reject.
+        asset.sha256 = None;
+        assert!(matches!(
+            verify(&file, &asset, &sums),
+            Err(UpdateError::NoDigest(_))
+        ));
         // Not listed in SHA256SUMS: reject.
+        asset.sha256 = Some(good.into());
         asset.name = "b.tar.gz".into();
         assert!(matches!(
             verify(&file, &asset, &sums),

@@ -129,10 +129,17 @@ How the update is applied depends on how you installed OpenSuperCAD:
 | Windows installer | The new installer is downloaded, verified and run silently; OpenSuperCAD closes and restarts when it's done |
 | Windows `.zip` | OpenSuperCAD links to the new `.zip` |
 
-Every download is checked before anything changes: its SHA-256 must match
-the release's `SHA256SUMS` **and** the digest GitHub records for the asset
-(releases are immutable). Downloads use `curl` over HTTPS only. From a
-terminal:
+Every download is checked before anything changes:
+
+- The release must be **immutable** on GitHub: its tag and files are locked
+  once published, so nobody can replace them later. OpenSuperCAD ignores
+  releases that aren't.
+- The download's SHA-256 must match both the release's `SHA256SUMS` and the
+  digest GitHub records for the file. A file without a GitHub digest is never
+  installed.
+- `SHA256SUMS` itself must match its own GitHub digest.
+
+Downloads use `curl` over HTTPS only. From a terminal:
 
 ```sh
 opensupercad update --check   # only report
