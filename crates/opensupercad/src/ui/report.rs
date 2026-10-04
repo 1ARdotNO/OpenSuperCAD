@@ -1,6 +1,7 @@
 //! "Report a bug" actions and the after-a-crash prompt.
 
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::{ActiveTheme, WindowExt, h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -9,13 +10,37 @@ use crate::crash;
 
 /// App-level handlers for the Help menu actions.
 pub fn register(cx: &mut App) {
-    cx.on_action(|_: &super::ReportBug, cx| cx.open_url(&crash::bug_report_url()));
-    cx.on_action(|_: &super::RequestFeature, cx| cx.open_url(&crash::feature_request_url()));
-    cx.on_action(|_: &super::OpenIssues, cx| cx.open_url(&crash::issues_url()));
+    cx.on_action(|_: &super::ReportBug, cx| open_link(&crash::bug_report_url(), cx));
+    cx.on_action(|_: &super::RequestFeature, cx| open_link(&crash::feature_request_url(), cx));
+    cx.on_action(|_: &super::OpenIssues, cx| open_link(&crash::issues_url(), cx));
     cx.on_action(|_: &super::ShowCrashReports, cx| {
         let dir = crash::crash_dir();
         let _ = std::fs::create_dir_all(&dir);
         cx.open_with_system(&dir);
+    });
+}
+
+/// Open `url` in the browser. Opening can fail silently (no default browser),
+/// so the link also goes on the clipboard and the user is told so.
+fn open_link(url: &str, cx: &mut App) {
+    cx.open_url(url);
+    cx.write_to_clipboard(ClipboardItem::new_string(url.to_owned()));
+    // Deferred: menu actions run while the window is borrowed. With no window
+    // manager there may be no active window, so fall back to the first one.
+    cx.defer(|cx| {
+        let window = cx
+            .active_window()
+            .or_else(|| cx.windows().into_iter().next());
+        if let Some(window) = window {
+            let _ = window.update(cx, |_, window, cx| {
+                window.push_notification(
+                    Notification::info(
+                        "Opening GitHub in your browser. The link is also on your clipboard.",
+                    ),
+                    cx,
+                );
+            });
+        }
     });
 }
 
@@ -76,8 +101,8 @@ pub fn offer_crash_report(window: &mut Window, cx: &mut App) {
                             .label("Report on GitHub")
                             .primary()
                             .on_click(move |_, window, cx| {
-                                cx.open_url(&url);
                                 window.close_dialog(cx);
+                                open_link(&url, cx);
                             }),
                     ),
             )
