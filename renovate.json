@@ -37,8 +37,8 @@
       "groupName": "github-actions"
     },
     {
-      "description": "GPUI Kit crates and the GPUI snapshot they pin must move together.",
-      "matchPackageNames": ["gpui-kit", "gpui-component", "gpui-base", "/^gpui-pre/"],
+      "description": "GPUI Kit crates, the GPUI snapshot they pin, and tree-sitter (a native-linked crate gpui-component pins) must move together.",
+      "matchPackageNames": ["gpui-kit", "gpui-component", "gpui-base", "/^gpui-pre/", "tree-sitter"],
       "groupName": "gpui-kit"
     },
     {
