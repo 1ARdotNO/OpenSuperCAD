@@ -5,7 +5,7 @@
 The layout follows Zed: one window per project, with docks around a central
 editor.
 
-![OpenSuperCAD](images/screenshot.png)
+![OpenSuperCAD](images/customizer-gear.png)
 
 ```
 ┌ Title bar: menus · project ▾ · branch ───────────── panel toggles ┐
