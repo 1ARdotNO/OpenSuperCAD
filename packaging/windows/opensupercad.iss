@@ -30,6 +30,8 @@ SolidCompression=yes
 WizardStyle=modern
 LicenseFile=..\..\LICENSE-MIT
 UninstallDisplayName=OpenSuperCAD {#Version}
+SetupIconFile=opensupercad.ico
+UninstallDisplayIcon={app}\opensupercad.exe
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
