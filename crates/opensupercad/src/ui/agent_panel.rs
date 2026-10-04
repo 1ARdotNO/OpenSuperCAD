@@ -7,11 +7,14 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{
     Escape, IndentInline, InputEvent, MoveDown, MoveUp, Position, Textarea, TextareaState,
 };
+use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::TextView;
-use gpui_kit::component::{ActiveTheme, IconName, IndexPath, Selectable, Sizable, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme, IconName, IndexPath, Selectable, Sizable, WindowExt, h_flex, v_flex,
+};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use osc_agent::{AgentEvent, PermissionChoice, Registry, SlashCommand, ToolStatus};
@@ -58,6 +61,8 @@ pub struct AgentPanel {
     /// Slash commands each agent advertised, kept while the app runs so they
     /// are offered before a new thread's agent has started.
     commands: HashMap<String, Vec<SlashCommand>>,
+    /// Node.js is being downloaded for an `npx` agent.
+    node_download: bool,
     /// The highlighted entry in the slash-command list.
     slash_ix: usize,
     /// Esc closed the list for the `/word` being typed.
@@ -73,17 +78,7 @@ impl AgentPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let names: Vec<SharedString> = registry
-            .agents()
-            .iter()
-            .map(|a| {
-                if a.is_available() {
-                    SharedString::from(a.name.clone())
-                } else {
-                    SharedString::from(format!("{} (not installed)", a.name))
-                }
-            })
-            .collect();
+        let names = agent_labels(&registry);
         let default = registry.default_agent().id.clone();
         let default_ix = registry
             .agents()
@@ -113,7 +108,7 @@ impl AgentPanel {
                             this.complete(&name, window, cx);
                         } else if !text.is_empty() {
                             state.update(cx, |s, cx| s.set_value("", window, cx));
-                            this.send(text, cx);
+                            this.send(text, window, cx);
                         }
                     }
                     InputEvent::Change => {
@@ -127,7 +122,8 @@ impl AgentPanel {
                 &agent_select,
                 move |this, _, ev: &SelectEvent<Vec<SharedString>>, cx| {
                     if let SelectEvent::Confirm(Some(label)) = ev
-                        && let Some(ix) = names.iter().position(|n| n == label)
+                        && let Some(ix) =
+                            agent_labels(&this.registry).iter().position(|n| n == label)
                     {
                         this.agent_id = ids[ix].clone();
                         // The next prompt starts a fresh thread with this agent.
@@ -163,6 +159,7 @@ impl AgentPanel {
             control: None,
             session_id: None,
             commands: HashMap::new(),
+            node_download: false,
             slash_ix: 0,
             slash_closed: false,
             _events: None,
@@ -324,11 +321,15 @@ impl AgentPanel {
         }
     }
 
-    fn send(&mut self, text: String, cx: &mut Context<Self>) {
+    fn send(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
         let Some((root, name, auto_checkpoint)) = self.project.clone() else {
             return;
         };
-        if self.is_busy() {
+        if self.is_busy() || self.node_download {
+            return;
+        }
+        if self.needs_node() {
+            self.offer_node(text, window, cx);
             return;
         }
         let session_id = self.session_id.clone();
@@ -356,6 +357,128 @@ impl AgentPanel {
         }
         self.scroll.scroll_to_bottom();
         cx.notify();
+    }
+
+    /// The selected agent runs on `npx`, no Node.js is installed, and there
+    /// is one OpenSuperCAD can download.
+    fn needs_node(&self) -> bool {
+        self.registry
+            .get(&self.agent_id)
+            .is_some_and(|a| a.command == "npx" && !a.is_available())
+            && osc_update::node::build_for_this_platform().is_some()
+    }
+
+    /// Explain why Node.js is needed and offer to download it; `text` is
+    /// sent once it's installed.
+    fn offer_node(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(build) = osc_update::node::build_for_this_platform() else {
+            return;
+        };
+        let label = osc_update::node::describe(&build);
+        let agent = self.agent_name();
+        let panel = cx.entity().downgrade();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let (panel, text) = (panel.clone(), text.clone());
+            dialog
+                .title("Node.js is needed")
+                .w(px(540.))
+                .child(
+                    v_flex()
+                        .gap_3()
+                        .child(format!(
+                            "{agent} talks to OpenSuperCAD through its ACP adapter, a \
+                             Node.js program that runs next to the {agent} CLI. Even with \
+                             {agent} installed, it needs Node.js 22 or newer, and none was \
+                             found on this computer."
+                        ))
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(
+                                    "OpenSuperCAD can download the official build from \
+                                     nodejs.org for you. It is checked against a pinned \
+                                     SHA-256 checksum and installed just for OpenSuperCAD, \
+                                     without admin rights. Your login is used as is.",
+                                ),
+                        ),
+                )
+                .footer(
+                    h_flex()
+                        .w_full()
+                        .justify_end()
+                        .gap_2()
+                        .child(
+                            Button::new("node-later")
+                                .label("Not now")
+                                .on_click(|_, window, cx| window.close_dialog(cx)),
+                        )
+                        .child(
+                            Button::new("node-download")
+                                .label(format!("Download {label}"))
+                                .primary()
+                                .on_click(move |_, window, cx| {
+                                    window.close_dialog(cx);
+                                    let text = text.clone();
+                                    panel
+                                        .update(cx, |this, cx| this.download_node(text, window, cx))
+                                        .ok();
+                                }),
+                        ),
+                )
+        });
+    }
+
+    /// Download Node.js in the background, then send `text`.
+    fn download_node(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
+        if self.node_download {
+            return;
+        }
+        self.node_download = true;
+        window.push_notification(
+            Notification::info("Downloading Node.js (SHA-256 verified)…"),
+            cx,
+        );
+        cx.notify();
+        let job = cx.background_spawn(async move { crate::node::install(|_| {}) });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = job.await;
+            this.update_in(cx, |this, window, cx| {
+                this.node_download = false;
+                match result {
+                    Ok(_) => {
+                        this.refresh_agent_labels(window, cx);
+                        window.push_notification(
+                            Notification::success("Node.js is installed (SHA-256 verified)."),
+                            cx,
+                        );
+                        this.send(text, window, cx);
+                    }
+                    Err(e) => window.push_notification(
+                        Notification::error(format!("Couldn't install Node.js: {e}"))
+                            .autohide(false),
+                        cx,
+                    ),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Re-check which agents are installed.
+    fn refresh_agent_labels(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let labels = agent_labels(&self.registry);
+        let ix = self
+            .registry
+            .agents()
+            .iter()
+            .position(|a| a.id == self.agent_id);
+        self.agent_select.update(cx, |s, cx| {
+            s.set_items(labels, window, cx);
+            s.set_selected_index(ix.map(IndexPath::new), window, cx);
+        });
     }
 
     /// Start the agent for this thread if it isn't running.
@@ -862,9 +985,12 @@ impl Render for AgentPanel {
                         Some(Status::Busy) => format!("{} is working…", self.agent_name()),
                         Some(Status::Failed(_)) => "Agent failed to start".to_owned(),
                         Some(Status::Exited) => "Agent exited".to_owned(),
+                        _ if self.node_download => "Downloading Node.js…".to_owned(),
                         _ => self.agent_name(),
                     })
-                    .when(busy, |el| el.child(Spinner::new().xsmall()))
+                    .when(busy || self.node_download, |el| {
+                        el.child(Spinner::new().xsmall())
+                    })
                     .child(div().flex_1())
                     .when(busy, |el| {
                         el.child(
@@ -886,6 +1012,21 @@ impl Render for AgentPanel {
             .child(div().flex_1().min_h_0().child(body))
             .child(composer)
     }
+}
+
+/// The agent selector's entries, marking agents whose command isn't found.
+fn agent_labels(registry: &Registry) -> Vec<SharedString> {
+    registry
+        .agents()
+        .iter()
+        .map(|a| {
+            if a.is_available() {
+                SharedString::from(a.name.clone())
+            } else {
+                SharedString::from(format!("{} (not installed)", a.name))
+            }
+        })
+        .collect()
 }
 
 impl AgentPanel {

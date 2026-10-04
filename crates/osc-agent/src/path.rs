@@ -12,15 +12,43 @@ use std::ffi::OsString;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 /// How long the login shell may take to report its `PATH`.
 const SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The directories searched for agent commands, in order. Computed once;
-/// the first call may run the user's login shell, see [`warm_up`].
-pub fn search_path() -> &'static [PathBuf] {
+/// The directories searched for agent commands, in order: the system's
+/// (see the module docs), then the fallbacks added with [`add_fallback`].
+/// The first call may run the user's login shell, see [`warm_up`].
+pub fn search_path() -> Vec<PathBuf> {
+    let mut dirs = system_path().to_vec();
+    for dir in fallbacks().lock().map(|f| f.clone()).unwrap_or_default() {
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    dirs
+}
+
+/// Search `dir` after everything else, e.g. the Node.js OpenSuperCAD
+/// downloaded: the user's own installs still win.
+pub fn add_fallback(dir: PathBuf) {
+    if let Ok(mut f) = fallbacks().lock()
+        && !f.contains(&dir)
+    {
+        f.push(dir);
+    }
+}
+
+fn fallbacks() -> &'static Mutex<Vec<PathBuf>> {
+    static FALLBACKS: OnceLock<Mutex<Vec<PathBuf>>> = OnceLock::new();
+    FALLBACKS.get_or_init(Mutex::default)
+}
+
+/// The process `PATH`, the login shell's and the usual install locations.
+/// Computed once.
+fn system_path() -> &'static [PathBuf] {
     static PATH: OnceLock<Vec<PathBuf>> = OnceLock::new();
     PATH.get_or_init(|| {
         let current = std::env::var_os("PATH").unwrap_or_default();
@@ -45,7 +73,7 @@ pub fn warm_up() {
     let _ = std::thread::Builder::new()
         .name("agent-path".into())
         .spawn(|| {
-            search_path();
+            system_path();
         });
 }
 

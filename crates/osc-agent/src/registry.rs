@@ -54,7 +54,7 @@ impl AgentSpec {
             vec![self.command.clone()]
         };
         crate::path::search_path()
-            .iter()
+            .into_iter()
             .flat_map(|d| names.iter().map(move |n| d.join(n)))
             .find(|p| p.is_file())
     }
@@ -85,9 +85,9 @@ impl Registry {
                 "Claude Code",
                 "npx",
                 &["-y", "@agentclientprotocol/claude-agent-acp@latest"],
-                "Claude Code's ACP adapter runs on Node.js 22 or newer (npx): install it from \
-                 https://nodejs.org. It signs in like Claude Code (Claude subscription or \
-                 ANTHROPIC_API_KEY).",
+                "Claude Code's ACP adapter runs on Node.js 22 or newer (npx), even when Claude \
+                 Code is installed. OpenSuperCAD offers to download it when you send a message \
+                 (or run `opensupercad node install`). It signs in like Claude Code.",
             ),
             AgentSpec::builtin(
                 "gemini",
@@ -101,8 +101,9 @@ impl Registry {
                 "Codex",
                 "npx",
                 &["-y", "@agentclientprotocol/codex-acp@latest"],
-                "Codex's ACP adapter runs on Node.js 22 or newer (npx): install it from \
-                 https://nodejs.org. It needs an OpenAI account or OPENAI_API_KEY.",
+                "Codex's ACP adapter runs on Node.js 22 or newer (npx). OpenSuperCAD offers to \
+                 download it when you send a message (or run `opensupercad node install`). It \
+                 needs an OpenAI account or OPENAI_API_KEY.",
             ),
             AgentSpec::builtin(
                 "goose",

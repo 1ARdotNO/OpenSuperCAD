@@ -8,6 +8,7 @@ mod agents;
 mod console;
 mod crash;
 mod doctor;
+mod node;
 mod openscad;
 mod pipeline;
 mod session;
@@ -22,6 +23,7 @@ USAGE:
     opensupercad mcp [--project DIR]    run the OpenSuperCAD MCP server on stdio
     opensupercad doctor                 check OpenSCAD, git, snapshots and agents
     opensupercad openscad [install]     show or download the OpenSCAD in use (SHA-256 verified)
+    opensupercad node [install]         show or download the Node.js agents run on (SHA-256 verified)
     opensupercad update [--check]       update from GitHub Releases (SHA-256 verified)
     opensupercad --version | --help";
 
@@ -32,6 +34,8 @@ fn main() -> anyhow::Result<()> {
     if args.first().is_some_and(|a| a != "mcp") {
         console::attach_parent();
     }
+    // The Node.js OpenSuperCAD downloaded, for agents started from here.
+    node::register();
     match args.first().map(String::as_str) {
         Some("mcp") => {
             crash::install("mcp");
@@ -54,6 +58,7 @@ fn main() -> anyhow::Result<()> {
         }
         Some("doctor") => doctor::run(),
         Some("openscad") => openscad::run_cli(&args[1..]),
+        Some("node") => node::run_cli(&args[1..]),
         Some("update") => update::run_cli(args.get(1).is_some_and(|a| a == "--check")),
         Some("--version" | "-V") => {
             println!("opensupercad {}", env!("CARGO_PKG_VERSION"));
