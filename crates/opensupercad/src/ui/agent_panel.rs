@@ -280,6 +280,9 @@ impl AgentPanel {
         self.session = None; // dropping kills the agent
         self._events = None;
         self.status = None;
+        // It named the stopped agent's session; a new thread must not
+        // resume it (#81).
+        self.session_id = None;
     }
 
     pub fn new_thread(&mut self, cx: &mut Context<Self>) {
@@ -332,10 +335,8 @@ impl AgentPanel {
             self.offer_node(text, window, cx);
             return;
         }
-        let session_id = self.session_id.clone();
+        let session_id = early_session(self.session.is_some(), &self.session_id);
         let thread = self.thread.get_or_insert_with(|| {
-            // An agent started early (to list its commands) already has a
-            // session; resume it with this thread.
             let mut t = Thread::new(self.agent_id.clone());
             t.session_id = session_id;
             t
@@ -1014,6 +1015,13 @@ impl Render for AgentPanel {
     }
 }
 
+/// The session a new thread takes over: only that of an agent started early
+/// (to list its commands) and still running, never a stopped agent's, which
+/// belonged to another thread (#81).
+fn early_session(running: bool, session_id: &Option<String>) -> Option<String> {
+    running.then(|| session_id.clone()).flatten()
+}
+
 /// The agent selector's entries, marking agents whose command isn't found.
 fn agent_labels(registry: &Registry) -> Vec<SharedString> {
     registry
@@ -1269,8 +1277,8 @@ impl AgentPanel {
 #[cfg(test)]
 mod tests {
     use super::{
-        SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_snapshots, decode_tool, encode_tool,
-        matching_commands, slash_query, typed_command_hint,
+        SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_snapshots, decode_tool, early_session,
+        encode_tool, matching_commands, slash_query, typed_command_hint,
     };
 
     #[test]
@@ -1332,5 +1340,14 @@ mod tests {
         assert_eq!(images[1].0, "top");
         assert_eq!(images[1].1, std::path::PathBuf::from("/d/1-top.png"));
         assert!(decode_snapshots("Checkpoint abc").is_none());
+    }
+
+    #[test]
+    fn new_threads_only_take_over_a_running_agent_session() {
+        let id = Some("s1".to_owned());
+        assert_eq!(early_session(true, &id), id);
+        // The previous thread's agent was stopped: start fresh.
+        assert_eq!(early_session(false, &id), None);
+        assert_eq!(early_session(true, &None), None);
     }
 }
