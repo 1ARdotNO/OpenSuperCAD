@@ -42,6 +42,9 @@ pub struct Preview {
     drag_from: Option<Point<Pixels>>,
     busy: usize,
     raster_gen: u64,
+    /// The background the current frame was drawn on, to redraw after a
+    /// theme change.
+    raster_bg: Option<[u8; 4]>,
     render_gen: u64,
     pub last_message: Option<SharedString>,
     /// File of the last render (animation frames are rendered from it).
@@ -101,6 +104,7 @@ impl Preview {
             drag_from: None,
             busy: 0,
             raster_gen: 0,
+            raster_bg: None,
             render_gen: 0,
             last_message: None,
             last_file: None,
@@ -413,20 +417,15 @@ impl Preview {
         };
         self.raster_gen += 1;
         let generation = self.raster_gen;
-        let theme = cx.theme();
-        let bg = theme.background.to_rgb();
+        let background = theme_background(cx);
+        self.raster_bg = Some(background);
         let opts = RasterOptions {
             width: FRAME.0,
             height: FRAME.1,
             rotation: self.rotation,
             zoom: self.zoom,
             pan: self.pan,
-            background: [
-                (bg.r * 255.0) as u8,
-                (bg.g * 255.0) as u8,
-                (bg.b * 255.0) as u8,
-                0xff,
-            ],
+            background,
             color: [0xf9, 0xd7, 0x5c],
             bounds: self.anim.as_ref().and_then(Animation::bounds),
         };
@@ -538,6 +537,10 @@ fn summary(result: &JobResult) -> String {
 
 impl Render for Preview {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // The frame bakes in the theme's background: redraw after a switch.
+        if self.raster_bg.is_some_and(|bg| bg != theme_background(cx)) {
+            self.rasterize(cx);
+        }
         let theme = cx.theme().clone();
         let image = self.openscad_image.clone().or_else(|| self.frame.clone());
         let toolbar = h_flex()
@@ -644,4 +647,15 @@ impl Render for Preview {
                 )
             })
     }
+}
+
+/// The theme background as RGBA bytes for the rasteriser.
+fn theme_background(cx: &App) -> [u8; 4] {
+    let bg = cx.theme().background.to_rgb();
+    [
+        (bg.r * 255.0) as u8,
+        (bg.g * 255.0) as u8,
+        (bg.b * 255.0) as u8,
+        0xff,
+    ]
 }
