@@ -16,7 +16,7 @@ mod client;
 mod registry;
 
 pub use acp;
-pub use client::{AgentClient, AgentError, AgentEvent, PermissionChoice, ToolStatus};
+pub use client::{AgentClient, AgentError, AgentEvent, PermissionChoice, SlashCommand, ToolStatus};
 pub use registry::{AgentSpec, Registry};
 
 use std::path::Path;

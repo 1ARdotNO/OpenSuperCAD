@@ -195,6 +195,7 @@ If a project is not a git repository yet, the first checkpoint runs
 | `Ctrl-Shift-N` | New agent thread |
 | `Enter` / `Shift-Enter` | Send prompt / new line (agent panel) |
 | `Esc` | Stop the agent (agent panel) |
+| `/` | Slash commands the agent offers; `↑`/`↓` to pick, `Tab` or `Enter` to complete, `Esc` to close |
 | `Ctrl-Alt-S` | Take a checkpoint |
 | `Ctrl-Shift-G` | Focus git panel |
 | `F5` / `F6` / `F7` | Preview / Render / Export STL |

@@ -4,7 +4,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
-use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
+use gpui_kit::component::input::{
+    Escape, IndentInline, InputEvent, MoveDown, MoveUp, Position, Textarea, TextareaState,
+};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::spinner::Spinner;
@@ -12,7 +14,7 @@ use gpui_kit::component::text::TextView;
 use gpui_kit::component::{ActiveTheme, IconName, IndexPath, Selectable, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
-use osc_agent::{AgentEvent, PermissionChoice, Registry, ToolStatus};
+use osc_agent::{AgentEvent, PermissionChoice, Registry, SlashCommand, ToolStatus};
 use osc_project::{Role, Store, Thread, ThreadSummary};
 
 use crate::session::{Options, Session, SessionEvent, Status};
@@ -51,6 +53,15 @@ pub struct AgentPanel {
     scroll: ScrollHandle,
     stderr_tail: Vec<String>,
     control: Option<PathBuf>,
+    /// The running agent's session id, kept until a thread can store it.
+    session_id: Option<String>,
+    /// Slash commands each agent advertised, kept while the app runs so they
+    /// are offered before a new thread's agent has started.
+    commands: HashMap<String, Vec<SlashCommand>>,
+    /// The highlighted entry in the slash-command list.
+    slash_ix: usize,
+    /// Esc closed the list for the `/word` being typed.
+    slash_closed: bool,
     _events: Option<Task<()>>,
     _subs: Vec<Subscription>,
 }
@@ -94,14 +105,22 @@ impl AgentPanel {
             cx.subscribe_in(
                 &prompt,
                 window,
-                |this, state, ev: &InputEvent, window, cx| {
-                    if let InputEvent::PressEnter { shift: false, .. } = ev {
+                |this, state, ev: &InputEvent, window, cx| match ev {
+                    InputEvent::PressEnter { shift: false, .. } => {
                         let text = state.read(cx).value().trim().to_owned();
-                        if !text.is_empty() {
+                        // Enter on a partial `/name` completes it first.
+                        if let Some(name) = this.completion(&text) {
+                            this.complete(&name, window, cx);
+                        } else if !text.is_empty() {
                             state.update(cx, |s, cx| s.set_value("", window, cx));
                             this.send(text, cx);
                         }
                     }
+                    InputEvent::Change => {
+                        let text = state.read(cx).value().to_string();
+                        this.on_prompt_changed(&text, cx);
+                    }
+                    _ => {}
                 },
             ),
             cx.subscribe(
@@ -142,6 +161,10 @@ impl AgentPanel {
             scroll: ScrollHandle::new(),
             stderr_tail: Vec::new(),
             control: None,
+            session_id: None,
+            commands: HashMap::new(),
+            slash_ix: 0,
+            slash_closed: false,
             _events: None,
             _subs: subs,
         }
@@ -308,47 +331,142 @@ impl AgentPanel {
         if self.is_busy() {
             return;
         }
-        let thread = self
-            .thread
-            .get_or_insert_with(|| Thread::new(self.agent_id.clone()));
-        let first_turn = thread.messages.iter().all(|m| m.role != Role::User);
+        let session_id = self.session_id.clone();
+        let thread = self.thread.get_or_insert_with(|| {
+            // An agent started early (to list its commands) already has a
+            // session; resume it with this thread.
+            let mut t = Thread::new(self.agent_id.clone());
+            t.session_id = session_id;
+            t
+        });
+        // Slash commands don't carry the skill, so they don't count.
+        let first_turn = !text.starts_with('/')
+            && thread
+                .messages
+                .iter()
+                .all(|m| m.role != Role::User || m.text.starts_with('/'));
         thread.push(Role::User, text.clone());
         self.save_thread();
         self.reload_threads();
 
-        if self.session.is_none() {
-            let Some(spec) = self.registry.get(&self.agent_id).cloned() else {
-                return;
-            };
-            let resume = self.thread.as_ref().and_then(|t| t.session_id.clone());
-            let session = Session::start(Options {
-                spec,
-                project_root: root,
-                project_name: name,
-                resume,
-                auto_checkpoint,
-                control: self.control.clone(),
-            });
-            let events = session.events.clone();
-            self.session = Some(session);
-            self.stderr_tail.clear();
-            self._events = Some(cx.spawn(async move |this, cx| {
-                while let Ok(ev) = events.recv().await {
-                    if this
-                        .update(cx, |this, cx| this.on_session_event(ev, cx))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-            }));
-        }
+        self.ensure_session(root, name, auto_checkpoint, cx);
         if let Some(session) = &self.session {
             // A thread resumed into a fresh agent process gets the skill again.
             session.prompt(text, first_turn);
         }
         self.scroll.scroll_to_bottom();
         cx.notify();
+    }
+
+    /// Start the agent for this thread if it isn't running.
+    fn ensure_session(
+        &mut self,
+        root: PathBuf,
+        name: String,
+        auto_checkpoint: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.session.is_some() {
+            return;
+        }
+        let Some(spec) = self.registry.get(&self.agent_id).cloned() else {
+            return;
+        };
+        let resume = self.thread.as_ref().and_then(|t| t.session_id.clone());
+        let session = Session::start(Options {
+            spec,
+            project_root: root,
+            project_name: name,
+            resume,
+            auto_checkpoint,
+            control: self.control.clone(),
+        });
+        let events = session.events.clone();
+        self.session = Some(session);
+        self.session_id = None;
+        self.stderr_tail.clear();
+        self._events = Some(cx.spawn(async move |this, cx| {
+            while let Ok(ev) = events.recv().await {
+                if this
+                    .update(cx, |this, cx| this.on_session_event(ev, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// The slash commands to offer for the prompt `text`, if any.
+    fn slash_list(&self, text: &str) -> Vec<&SlashCommand> {
+        if self.slash_closed {
+            return Vec::new();
+        }
+        let (Some(query), Some(commands)) = (slash_query(text), self.commands.get(&self.agent_id))
+        else {
+            return Vec::new();
+        };
+        matching_commands(query, commands)
+    }
+
+    /// The command Enter or Tab should complete `text` to: the highlighted
+    /// entry, unless `text` already names it exactly.
+    fn completion(&self, text: &str) -> Option<String> {
+        let list = self.slash_list(text);
+        let selected = list.get(self.slash_ix.min(list.len().saturating_sub(1)))?;
+        (Some(selected.name.as_str()) != slash_query(text)).then(|| selected.name.clone())
+    }
+
+    /// Replace the prompt with `/name `, ready for the command's input.
+    fn complete(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let value = format!("/{name} ");
+        let end = value.encode_utf16().count() as u32;
+        self.prompt.update(cx, |s, cx| {
+            s.set_value(value, window, cx);
+            s.set_cursor_position(Position::new(0, end), window, cx);
+        });
+        self.slash_ix = 0;
+        cx.notify();
+    }
+
+    fn on_prompt_changed(&mut self, text: &str, cx: &mut Context<Self>) {
+        self.slash_ix = 0;
+        if slash_query(text).is_none() {
+            self.slash_closed = false;
+        } else if !self.commands.contains_key(&self.agent_id)
+            && let Some((root, name, auto_checkpoint)) = self.project.clone()
+        {
+            // Agents announce their commands once a session starts, so start
+            // it now rather than on the first message.
+            self.ensure_session(root, name, auto_checkpoint, cx);
+        }
+        cx.notify();
+    }
+
+    /// Up, Down, Tab and Esc drive the slash-command list while it's open.
+    /// Returns whether the key was used (otherwise the prompt gets it).
+    fn slash_key(&mut self, key: SlashKey, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let text = self.prompt.read(cx).value().to_string();
+        let names: Vec<String> = self
+            .slash_list(&text)
+            .iter()
+            .map(|c| c.name.clone())
+            .collect();
+        let n = names.len();
+        if n == 0 {
+            return false;
+        }
+        match key {
+            SlashKey::Down => self.slash_ix = (self.slash_ix + 1) % n,
+            SlashKey::Up => self.slash_ix = (self.slash_ix + n - 1) % n,
+            SlashKey::Complete => {
+                let name = names[self.slash_ix.min(n - 1)].clone();
+                self.complete(&name, window, cx);
+            }
+            SlashKey::Close => self.slash_closed = true,
+        }
+        cx.notify();
+        true
     }
 
     fn append(&mut self, role: Role, text: &str) {
@@ -385,8 +503,9 @@ impl AgentPanel {
             }
             SessionEvent::SessionId(id) => {
                 if let Some(t) = &mut self.thread {
-                    t.session_id = Some(id);
+                    t.session_id = Some(id.clone());
                 }
+                self.session_id = Some(id);
                 self.save_thread();
             }
             SessionEvent::Agent(event) => self.on_agent_event(event, cx),
@@ -465,6 +584,9 @@ impl AgentPanel {
                 title,
                 choices,
             }),
+            AgentEvent::AvailableCommands { commands, .. } => {
+                self.commands.insert(self.agent_id.clone(), commands);
+            }
             AgentEvent::FileWritten { .. } => cx.emit(AgentPanelEvent::FilesChanged),
             AgentEvent::Stderr(line) => {
                 self.stderr_tail.push(line);
@@ -488,6 +610,49 @@ impl AgentPanel {
 /// System messages starting with this marker hold agent snapshots:
 /// `␞file␟label=path␟label=path…`.
 const SNAPSHOT_MARKER: char = '\u{1e}';
+
+/// Keys that drive the slash-command list.
+#[derive(Clone, Copy)]
+enum SlashKey {
+    Up,
+    Down,
+    Complete,
+    Close,
+}
+
+/// What follows the `/` while a command name is being typed (no space yet).
+fn slash_query(text: &str) -> Option<&str> {
+    let rest = text.strip_prefix('/')?;
+    (!rest.contains(char::is_whitespace)).then_some(rest)
+}
+
+/// Commands whose name starts with `query`, then those containing it.
+fn matching_commands<'a>(query: &str, commands: &'a [SlashCommand]) -> Vec<&'a SlashCommand> {
+    let q = query.to_lowercase();
+    let name = |c: &SlashCommand| c.name.to_lowercase();
+    let mut list: Vec<_> = commands
+        .iter()
+        .filter(|c| name(c).starts_with(&q))
+        .collect();
+    list.extend(
+        commands
+            .iter()
+            .filter(|c| !name(c).starts_with(&q) && name(c).contains(&q)),
+    );
+    list
+}
+
+/// The input hint of the command typed so far (`/name ` and nothing else).
+fn typed_command_hint<'a>(text: &str, commands: &'a [SlashCommand]) -> Option<&'a str> {
+    let (name, rest) = text.strip_prefix('/')?.split_once(' ')?;
+    if !rest.is_empty() {
+        return None;
+    }
+    commands
+        .iter()
+        .find(|c| c.name == name)
+        .and_then(|c| c.hint.as_deref())
+}
 
 fn decode_snapshots(text: &str) -> Option<(String, Vec<(String, PathBuf)>)> {
     let rest = text.strip_prefix(SNAPSHOT_MARKER)?;
@@ -662,7 +827,30 @@ impl Render for AgentPanel {
             .p_2()
             .border_t_1()
             .border_color(theme.border)
+            // Capture phase: runs before the prompt's own handling of these
+            // keys, and stops it only while the command list is open.
+            .capture_action(cx.listener(|this, _: &MoveDown, window, cx| {
+                if this.slash_key(SlashKey::Down, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &MoveUp, window, cx| {
+                if this.slash_key(SlashKey::Up, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &IndentInline, window, cx| {
+                if this.slash_key(SlashKey::Complete, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &Escape, window, cx| {
+                if this.slash_key(SlashKey::Close, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
             .child(permissions)
+            .children(self.render_slash_list(&theme, cx))
             .child(Textarea::new(&self.prompt).w_full())
             .child(
                 h_flex()
@@ -701,6 +889,80 @@ impl Render for AgentPanel {
 }
 
 impl AgentPanel {
+    /// The commands matching the `/word` being typed, or what the typed
+    /// command expects as input.
+    fn render_slash_list(
+        &self,
+        theme: &gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let text = self.prompt.read(cx).value().to_string();
+        let commands = self.commands.get(&self.agent_id);
+        let row = |el: Div| el.px_2().py_0p5().text_xs();
+        if let Some(hint) = commands.and_then(|c| typed_command_hint(&text, c)) {
+            return Some(
+                row(div())
+                    .text_color(theme.muted_foreground)
+                    .child(format!("Input: {hint}"))
+                    .into_any_element(),
+            );
+        }
+        let query = slash_query(&text)?;
+        if self.slash_closed {
+            return None;
+        }
+        if commands.is_none() {
+            return (query.is_empty() && self.session.is_some()).then(|| {
+                row(div())
+                    .text_color(theme.muted_foreground)
+                    .child(format!("Asking {} for its commands…", self.agent_name()))
+                    .into_any_element()
+            });
+        }
+        let list = self.slash_list(&text);
+        if list.is_empty() {
+            return None;
+        }
+        let selected = self.slash_ix.min(list.len() - 1);
+        let mut rows = v_flex()
+            .py_1()
+            .rounded_md()
+            .border_1()
+            .border_color(theme.border)
+            .bg(theme.popover);
+        for (ix, c) in list.iter().take(8).enumerate() {
+            let name = c.name.clone();
+            rows = rows.child(
+                h_flex()
+                    .id(("slash", ix))
+                    .px_2()
+                    .py_0p5()
+                    .text_xs()
+                    .gap_2()
+                    .cursor_pointer()
+                    .when(ix == selected, |el| el.bg(theme.list_active))
+                    .hover(|s| s.bg(theme.list_hover))
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(format!("/{}", c.name)),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(theme.muted_foreground)
+                            .child(c.description.clone()),
+                    )
+                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                        this.complete(&name, window, cx)
+                    })),
+            );
+        }
+        Some(rows.into_any_element())
+    }
+
     fn render_messages(
         &self,
         theme: &gpui_kit::component::Theme,
@@ -865,7 +1127,45 @@ impl AgentPanel {
 
 #[cfg(test)]
 mod tests {
-    use super::{SNAPSHOT_MARKER, ToolStatus, decode_snapshots, decode_tool, encode_tool};
+    use super::{
+        SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_snapshots, decode_tool, encode_tool,
+        matching_commands, slash_query, typed_command_hint,
+    };
+
+    #[test]
+    fn slash_commands_match_and_hint() {
+        let cmd = |name: &str, hint: Option<&str>| SlashCommand {
+            name: name.into(),
+            description: String::new(),
+            hint: hint.map(Into::into),
+        };
+        let commands = vec![
+            cmd("review", Some("what to focus on")),
+            cmd("compact", None),
+            cmd("preview", None),
+        ];
+        assert_eq!(slash_query("/rev"), Some("rev"));
+        assert_eq!(slash_query("/"), Some(""));
+        assert_eq!(slash_query("/review the lid"), None);
+        assert_eq!(slash_query("make a box"), None);
+        let names = |q| -> Vec<String> {
+            matching_commands(q, &commands)
+                .iter()
+                .map(|c| c.name.clone())
+                .collect()
+        };
+        assert_eq!(names(""), ["review", "compact", "preview"]);
+        // Prefix matches first, then substring matches.
+        assert_eq!(names("re"), ["review", "preview"]);
+        assert_eq!(names("VIEW"), ["review", "preview"]);
+        assert!(names("zzz").is_empty());
+        assert_eq!(
+            typed_command_hint("/review ", &commands),
+            Some("what to focus on")
+        );
+        assert_eq!(typed_command_hint("/review the lid", &commands), None);
+        assert_eq!(typed_command_hint("/compact ", &commands), None);
+    }
 
     #[test]
     fn tool_messages_roundtrip() {

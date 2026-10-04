@@ -32,6 +32,22 @@ Pick the agent from the selector in the agent panel. Agents whose command
 isn't found are listed with an install hint. `opensupercad doctor` shows which
 agents are available.
 
+## Slash commands
+
+Agents can offer slash commands over ACP, such as Claude Code's custom
+commands. Type `/` at the start of the prompt to list the current agent's
+commands with their descriptions, filtered as you type. Use `↑`/`↓` to pick
+one, then `Tab` or `Enter` to complete it. If the command takes input, the
+panel shows what to type. Press `Enter` again to send it.
+
+The agent starts when you type `/`, because agents only announce their
+commands once a session is running. A command is sent on its own: the
+OpenSuperCAD design context goes with your next ordinary message. Features
+of an agent's interactive terminal UI that aren't slash commands over ACP,
+such as Claude Code's Remote Control, aren't available in the panel. For
+those, run the agent in a terminal with the MCP server attached (see
+[Using the MCP server outside OpenSuperCAD](#using-the-mcp-server-outside-opensupercad)).
+
 > ACP adapters evolve quickly. If an adapter is renamed or a CLI changes its
 > ACP flag, override the built-in entry as shown below. No new release needed.
 

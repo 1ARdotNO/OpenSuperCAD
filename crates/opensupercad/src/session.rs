@@ -201,7 +201,11 @@ fn worker(
     let mut skill_sent = resumed;
     while let Ok(Command::Prompt { text, first_turn }) = commands.recv() {
         send(SessionEvent::Status(Status::Busy));
-        let blocks = if first_turn || !skill_sent {
+        // Agents only recognise a slash command at the very start of the
+        // prompt, so commands go alone; the skill rides the next message.
+        let blocks = if text.starts_with('/') {
+            vec![text_block(text.clone())]
+        } else if first_turn || !skill_sent {
             skill_sent = true;
             first_turn_prompt(osc_mcp::skill_body(), &opts.project_name, &text)
         } else {
