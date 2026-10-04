@@ -114,8 +114,8 @@ pub fn preview_image(
 }
 
 /// Rasterise a mesh for the viewport and return PNG bytes.
-pub fn rasterize(mesh: &Mesh, overlays: &raster::Overlays, opts: &RasterOptions) -> Vec<u8> {
-    raster::render_with(mesh, overlays, opts).to_png()
+pub fn rasterize(mesh: &Mesh, overlays: &raster::Overlays, opts: &RasterOptions) -> raster::Image {
+    raster::render_with(mesh, overlays, opts)
 }
 
 fn unique() -> String {
@@ -151,12 +151,12 @@ mod tests {
         assert!(r.success);
         let mesh = r.mesh.unwrap();
         assert_eq!(mesh.bounds().1, [10.0, 20.0, 5.0]);
-        let png = rasterize(
-            &mesh,
-            &raster::Overlays::default(),
-            &RasterOptions::default(),
-        );
-        assert_eq!(&png[1..4], b"PNG");
+        let opts = RasterOptions::default();
+        let image = rasterize(&mesh, &raster::Overlays::default(), &opts);
+        assert_eq!((image.width, image.height), (opts.width, opts.height));
+        // The cube covers the middle of the frame.
+        let centre = image.pixel(opts.width / 2, opts.height / 2);
+        assert_ne!(centre, image.pixel(0, 0));
 
         std::fs::write(&file, "cube(;").unwrap();
         let r = render_mesh(&engine, &file, &[], dir.path());

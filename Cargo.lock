@@ -4892,6 +4892,7 @@ dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
  "gpui-kit",
+ "image",
  "osc-agent",
  "osc-engine",
  "osc-git",

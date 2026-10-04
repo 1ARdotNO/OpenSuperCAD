@@ -36,12 +36,18 @@ pub struct Preview {
     rotation: [f32; 3],
     zoom: f32,
     pan: [f32; 2],
-    frame: Option<Arc<Image>>,
+    /// The rasterised view, handed to the GPU as is: no PNG round trip, so
+    /// a new frame paints at once and the old one stays until it does.
+    frame: Option<Arc<RenderImage>>,
     /// OpenSCAD's own preview image; shown until the user orbits.
     openscad_image: Option<Arc<Image>>,
     drag_from: Option<Point<Pixels>>,
     busy: usize,
     raster_gen: u64,
+    /// A raster is running; requests meanwhile only set `raster_dirty`.
+    raster_busy: bool,
+    /// The view changed while a raster was running: draw it once it ends.
+    raster_dirty: bool,
     /// Generation of the frame on screen. Any newer frame is shown, so a
     /// stream of requests (playback, orbiting) can't starve the display.
     shown_raster: u64,
@@ -107,6 +113,8 @@ impl Preview {
             drag_from: None,
             busy: 0,
             raster_gen: 0,
+            raster_busy: false,
+            raster_dirty: false,
             shown_raster: 0,
             raster_bg: None,
             render_gen: 0,
@@ -123,7 +131,7 @@ impl Preview {
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
         self.mesh = None;
-        self.frame = None;
+        self.set_frame(None, cx);
         self.openscad_image = None;
         cx.notify();
     }
@@ -420,11 +428,19 @@ impl Preview {
         self.set_view(View::Iso, cx);
     }
 
-    /// Rasterise the mesh off the main thread; stale frames are dropped.
+    /// Rasterise the mesh off the main thread. One raster runs at a time:
+    /// requests while it runs (every mouse move of an orbit) are coalesced
+    /// into one more raster of the latest view when it ends.
     fn rasterize(&mut self, cx: &mut Context<Self>) {
         let Some(mesh) = self.mesh.clone() else {
             return;
         };
+        if self.raster_busy {
+            self.raster_dirty = true;
+            return;
+        }
+        self.raster_busy = true;
+        self.raster_dirty = false;
         self.raster_gen += 1;
         let generation = self.raster_gen;
         let background = theme_background(cx);
@@ -447,20 +463,33 @@ impl Preview {
                 axes,
                 grid,
             };
-            pipeline::rasterize(&mesh, &overlays, &opts)
+            render_image(pipeline::rasterize(&mesh, &overlays, &opts))
         });
         cx.spawn(async move |this, cx| {
-            let png = job.await;
+            let frame = job.await;
             this.update(cx, |this, cx| {
+                this.raster_busy = false;
                 if generation > this.shown_raster {
                     this.shown_raster = generation;
-                    this.frame = Some(Arc::new(Image::from_bytes(ImageFormat::Png, png)));
+                    this.set_frame(frame.map(Arc::new), cx);
                     cx.notify();
+                }
+                if this.raster_dirty {
+                    this.rasterize(cx);
                 }
             })
             .ok();
         })
         .detach();
+    }
+
+    /// Show `frame`, releasing the GPU texture of the one it replaces (each
+    /// frame is a new texture; orbiting would otherwise fill the atlas).
+    fn set_frame(&mut self, frame: Option<Arc<RenderImage>>, cx: &mut Context<Self>) {
+        if let Some(old) = std::mem::replace(&mut self.frame, frame) {
+            // Deferred: windows are borrowed while they draw.
+            cx.defer(move |cx| cx.drop_image(old, None));
+        }
     }
 
     fn on_drag(&mut self, e: &MouseMoveEvent, cx: &mut Context<Self>) {
@@ -553,7 +582,11 @@ impl Render for Preview {
             self.rasterize(cx);
         }
         let theme = cx.theme().clone();
-        let image = self.openscad_image.clone().or_else(|| self.frame.clone());
+        let image: Option<ImageSource> = match (&self.openscad_image, &self.frame) {
+            (Some(png), _) => Some(png.clone().into()),
+            (None, Some(frame)) => Some(ImageSource::Render(frame.clone())),
+            (None, None) => None,
+        };
         // Wraps rather than clipping, so every toggle stays reachable in a
         // narrow window.
         let toolbar = h_flex()
@@ -663,6 +696,16 @@ impl Render for Preview {
     }
 }
 
+/// The rasteriser's RGBA pixels as a GPUI image, which wants BGRA.
+fn render_image(image: osc_engine::raster::Image) -> Option<RenderImage> {
+    let mut pixels = image.pixels;
+    for [r, _, b, _] in pixels.as_chunks_mut::<4>().0 {
+        std::mem::swap(r, b);
+    }
+    let buffer = image::RgbaImage::from_raw(image.width, image.height, pixels)?;
+    Some(RenderImage::new(vec![image::Frame::new(buffer)]))
+}
+
 /// The theme background as RGBA bytes for the rasteriser.
 fn theme_background(cx: &App) -> [u8; 4] {
     let bg = cx.theme().background.to_rgb();
@@ -672,4 +715,26 @@ fn theme_background(cx: &App) -> [u8; 4] {
         (bg.b * 255.0) as u8,
         0xff,
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::render_image;
+
+    #[test]
+    fn frames_go_to_the_gpu_as_bgra() {
+        let image = osc_engine::raster::Image {
+            width: 2,
+            height: 1,
+            pixels: vec![1, 2, 3, 255, 10, 20, 30, 128],
+        };
+        let frame = render_image(image).unwrap();
+        assert_eq!(frame.as_bytes(0).unwrap(), &[3, 2, 1, 255, 30, 20, 10, 128]);
+        let short = osc_engine::raster::Image {
+            width: 2,
+            height: 2,
+            pixels: vec![0; 4],
+        };
+        assert!(render_image(short).is_none());
+    }
 }
