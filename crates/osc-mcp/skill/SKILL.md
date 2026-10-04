@@ -83,5 +83,6 @@ app. Use its tools instead of guessing.
 - Say what you changed and what the snapshots show. Never claim a model
   looks right without having looked at it.
 - Ask before deleting files or making sweeping rewrites of a user's design.
-- If OpenSCAD is not installed, tell the user to see the installation guide.
+- If OpenSCAD is not installed, tell the user to download it from
+  OpenSuperCAD's Settings → OpenSCAD (or run `opensupercad openscad install`).
   You can still edit sources.

@@ -49,6 +49,22 @@ Users then run `brew install --cask 1ardotno/tap/opensupercad`.
    (push an initial commit once by hand).
 2. Add the account's SSH private key as the secret `AUR_SSH_PRIVATE_KEY`.
 
+## Bumping the OpenSCAD pins
+
+The OpenSCAD builds the app downloads are pinned in
+`crates/osc-update/openscad-pins.json`. Renovate can't track them, so the
+`OpenSCAD pins` workflow checks them every week and fails when upstream
+removes a pinned snapshot (snapshots stay online for about a year). To bump:
+
+1. Pick a snapshot from <https://files.openscad.org/snapshots/> that exists
+   for every platform (AppImage, `.dmg`, `-x86-64.zip`).
+2. Download each file and record its size and SHA-256. Check them against
+   upstream's `.sha256` files and the GPG signatures (`.asc`, key
+   `E2EBDADD336FF516ADD51A78F3E12CCC22164A0F` from
+   <https://files.openscad.org/OpenSCAD_public_key.asc>).
+3. Update the pins and open a PR. The workflow installs and test-runs the new
+   builds on Linux, macOS and Windows before it can merge.
+
 ## One-time repository settings
 
 - Install the [Renovate GitHub App](https://github.com/apps/renovate).

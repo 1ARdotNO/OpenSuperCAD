@@ -60,7 +60,10 @@ in the **Settings** tab.
 Open the **Settings** tab in the project panel to choose the main file, the
 default agent, whether to checkpoint after each AI turn, and the OpenSCAD
 geometry backend (Manifold is much faster on OpenSCAD 2024+). The tab also
-toggles the theme and opens `agents.json`.
+shows which OpenSCAD is in use, with **Download** (an official build, SHA-256
+verified, see [installation.md](installation.md#installing-openscad)),
+**Locate…** and *Find automatically*, toggles the theme and opens
+`agents.json`.
 
 Settings are stored in `<project>/.opensupercad/settings.json`, which you can
 commit to share them:
@@ -220,6 +223,7 @@ as `~`. *Help → Show Crash Reports* opens the folder.
 opensupercad [PATH]                 open a project folder (or the folder of a .scad file)
 opensupercad mcp [--project DIR]    run the MCP server on stdio (for external agents)
 opensupercad doctor                 check OpenSCAD, git, snapshots and agents
+opensupercad openscad [install]     show, download (SHA-256 verified), `locate PATH` or `auto`
 opensupercad update [--check]       update from GitHub Releases (see installation.md#updating)
 opensupercad --version
 ```
@@ -231,6 +235,7 @@ opensupercad --version
 | Recent projects and threads | `~/.local/share/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
 | App settings (`app-settings.json`: update checks) | `~/.local/share/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
 | Crash reports | `~/.local/share/opensupercad/crashes/` | `~/Library/Application Support/OpenSuperCAD/crashes/` |
+| Downloaded OpenSCAD and your *Locate…* choice | `~/.local/share/opensupercad/openscad/` | `~/Library/Application Support/OpenSuperCAD/openscad/` |
 | Agent overrides (`agents.json`) | `~/.config/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
 | Project settings | `<project>/.opensupercad/settings.json` | same |
 
