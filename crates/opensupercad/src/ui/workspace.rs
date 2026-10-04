@@ -255,6 +255,11 @@ impl Workspace {
         if let Some(path) = start {
             ws.open_path(&path, window, cx);
         }
+        // Focus the editor so shortcuts like Ctrl-P work before the first click.
+        let editor = ws.editor.clone();
+        window.defer(cx, move |window, cx| {
+            editor.update(cx, |e, cx| e.focus(window, cx));
+        });
         // After the window's root exists, so the dialog has somewhere to go.
         window.defer(cx, super::report::offer_crash_report);
         window.defer(cx, super::updates::startup_check);
