@@ -103,11 +103,16 @@ itself.
 | Preview (OpenSCAD's own OpenCSG preview, from the current camera) | `F5` | Design → Preview |
 | Render (full geometry, shown in the interactive viewport) | `F6` | Design → Render |
 | Export STL | `F7` | File → Export → STL |
-| Export… (3MF, OFF, AMF, OBJ, DXF, SVG, PDF, PNG, CSG) | `Ctrl/Cmd-Shift-E` | File → Export |
+| Export… (3MF, OFF, AMF, OBJ, DXF, SVG, PDF, PNG, CSG; the extension picks the format) | `Ctrl/Cmd-Shift-E` | File → Export |
 | Reload from disk | `Ctrl/Cmd-R` | Design → Reload and Preview |
 | View: top / bottom / left / right / front / back / diagonal | `Ctrl/Cmd-4` … `9`, `0` | View menu |
 | Reset view | `Ctrl/Cmd-Shift-0` | View → Reset View |
 | Save | `Ctrl/Cmd-S` | File → Save (also triggers preview, as with OpenSCAD's auto-reload) |
+
+Exports use the same file as the preview: while you edit a library that the
+main file pulls in, `F7` exports the main design. The STL is written next to
+it. Without a native file dialog (no xdg-desktop-portal on Linux),
+OpenSuperCAD asks for the path in its own dialog.
 
 **Animation.** Designs that use OpenSCAD's `$t` can be animated. Click
 **Animate** in the preview toolbar: OpenSuperCAD renders 24 frames
@@ -195,6 +200,20 @@ If a project is not a git repository yet, the first checkpoint runs
 
 ![The command palette](images/command-palette.png)
 
+## Reporting bugs and crashes
+
+The **Help** menu (also in the command palette) has *Report a Bug…*,
+*Request a Feature…* and *Open Issues Page*. A bug report opens GitHub's
+bug form with your OpenSuperCAD version, OS and architecture filled in.
+
+If OpenSuperCAD (or its MCP server) crashes, it writes a crash report to the
+`crashes` folder in the data directory (see below). On the next start you're
+asked whether to report it. **Report on GitHub** opens a new issue with the
+report filled in, which you can review and edit before submitting. Nothing is
+sent automatically. Reports contain the version, OS, the panic message and a
+backtrace. They never include your files, and your home directory is shown
+as `~`. *Help → Show Crash Reports* opens the folder.
+
 ## Command line
 
 ```text
@@ -209,6 +228,7 @@ opensupercad --version
 | What | Linux | macOS |
 | --- | --- | --- |
 | Recent projects and threads | `~/.local/share/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
+| Crash reports | `~/.local/share/opensupercad/crashes/` | `~/Library/Application Support/OpenSuperCAD/crashes/` |
 | Agent overrides (`agents.json`) | `~/.config/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
 | Project settings | `<project>/.opensupercad/settings.json` | same |
 

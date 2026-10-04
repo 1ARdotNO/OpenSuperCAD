@@ -154,6 +154,10 @@ pub fn commands() -> Vec<(&'static str, Rc<dyn Action>)> {
         ("Git: Show Git Panel", a(FocusGit)),
         ("Agent: New Thread", a(NewThread)),
         ("Agent: Stop", a(StopAgent)),
+        ("Help: Report a Bug", a(ReportBug)),
+        ("Help: Request a Feature", a(RequestFeature)),
+        ("Help: Open Issues Page", a(OpenIssues)),
+        ("Help: Show Crash Reports", a(ShowCrashReports)),
         ("App: Quit", a(Quit)),
     ]
 }

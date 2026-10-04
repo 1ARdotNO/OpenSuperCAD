@@ -3,8 +3,10 @@
 mod agent_panel;
 mod customizer;
 mod git_panel;
+mod path_prompt;
 mod picker;
 mod preview;
+mod report;
 mod settings_panel;
 mod workspace;
 
@@ -51,6 +53,10 @@ actions!(
         ViewBack,
         ViewDiagonal,
         ResetView,
+        ReportBug,
+        RequestFeature,
+        OpenIssues,
+        ShowCrashReports,
     ]
 );
 
@@ -71,6 +77,7 @@ pub fn run(path: Option<PathBuf>) -> anyhow::Result<()> {
             register_openscad_language();
             bind_keys(cx);
             cx.on_action(|_: &Quit, cx| cx.quit());
+            report::register(cx);
             cx.on_action(|_: &ToggleTheme, cx| {
                 let mode = if cx.theme_is_dark() {
                     ThemeMode::Light
@@ -213,6 +220,13 @@ fn menus() -> Vec<Menu> {
         Menu::new("Agent").items([
             MenuItem::action("New Thread", NewThread),
             MenuItem::action("Stop", StopAgent),
+        ]),
+        Menu::new("Help").items([
+            MenuItem::action("Report a Bug…", ReportBug),
+            MenuItem::action("Request a Feature…", RequestFeature),
+            MenuItem::action("Open Issues Page", OpenIssues),
+            MenuItem::separator(),
+            MenuItem::action("Show Crash Reports", ShowCrashReports),
         ]),
     ]
 }

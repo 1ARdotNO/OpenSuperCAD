@@ -255,6 +255,8 @@ impl Workspace {
         if let Some(path) = start {
             ws.open_path(&path, window, cx);
         }
+        // After the window's root exists, so the dialog has somewhere to go.
+        window.defer(cx, super::report::offer_crash_report);
         ws
     }
 
@@ -681,6 +683,9 @@ impl Workspace {
                 tab.dirty = false;
                 tab.disk_mtime = mtime(&target);
             }
+            // No editor event fires for the active tab here, so refresh the
+            // customizer's values (labels) from the new source directly.
+            self.sync_customizer(&updated, window, cx);
             cx.spawn_in(window, async move |this, cx| {
                 cx.background_executor()
                     .timer(Duration::from_millis(350))
@@ -771,22 +776,24 @@ impl Workspace {
     // Actions
     // ---------------------------------------------------------------------
 
-    fn open_folder(&mut self, _: &OpenFolder, _window: &mut Window, cx: &mut Context<Self>) {
-        let rx = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Open Project".into()),
-        });
-        cx.spawn_in(_window, async move |this, cx| {
-            if let Ok(Ok(Some(paths))) = rx.await
-                && let Some(path) = paths.into_iter().next()
-            {
-                this.update_in(cx, |this, window, cx| this.open_path(&path, window, cx))
+    fn open_folder(&mut self, _: &OpenFolder, window: &mut Window, cx: &mut Context<Self>) {
+        let start = self
+            .project
+            .as_ref()
+            .and_then(|p| p.root().parent().map(Path::to_path_buf))
+            .or_else(dirs::home_dir)
+            .unwrap_or_default();
+        let this = cx.entity().downgrade();
+        super::path_prompt::folder(
+            "Open Project",
+            &start,
+            window,
+            cx,
+            move |path, window, cx| {
+                this.update(cx, |this, cx| this.open_path(&path, window, cx))
                     .ok();
-            }
-        })
-        .detach();
+            },
+        );
     }
 
     /// Open a read-only, highlighted diff of what a checkpoint changed.
@@ -903,27 +910,46 @@ impl Workspace {
             self.open_folder(&OpenFolder, window, cx);
             return;
         };
-        let rx = cx.prompt_for_new_path(&root, Some("untitled.scad"));
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(path))) = rx.await {
+        let this = cx.entity().downgrade();
+        super::path_prompt::new_path(
+            "New File",
+            "Path of the new file",
+            &root,
+            "untitled.scad",
+            window,
+            cx,
+            move |path, window, cx| {
                 if !path.exists() {
                     let _ = std::fs::write(&path, "// New OpenSCAD design\n\ncube(10);\n");
                 }
-                this.update_in(cx, |this, window, cx| {
+                this.update(cx, |this, cx| {
                     this.refresh_files(cx);
                     this.open_file(&path, window, cx);
                 })
                 .ok();
-            }
-        })
-        .detach();
+            },
+        );
     }
 
     fn export(&mut self, target: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let (Some(engine), Some(file)) = (self.engine.clone(), self.open_file.clone()) else {
+        let Some(engine) = self.engine.clone() else {
+            window.push_notification(
+                Notification::error("OpenSCAD was not found; run `opensupercad doctor`"),
+                cx,
+            );
+            return;
+        };
+        let Some(file) = self.render_target() else {
             return;
         };
         self.save(window, cx);
+        window.push_notification(
+            Notification::info(format!(
+                "Exporting {}…",
+                target.file_name().unwrap_or_default().to_string_lossy()
+            )),
+            cx,
+        );
         let job = cx.background_spawn(async move {
             engine
                 .export(&osc_engine::Request::new(&file), &target)
@@ -933,21 +959,27 @@ impl Workspace {
             let result = job.await;
             this.update_in(cx, |this, window, cx| match result {
                 Ok((r, target)) if r.success => {
+                    let shown = this
+                        .project
+                        .as_ref()
+                        .map(|p| p.relative(&target))
+                        .unwrap_or_else(|| target.display().to_string());
                     window.push_notification(
-                        Notification::success(format!(
-                            "Exported {} in {} ms",
-                            target.display(),
-                            r.duration_ms
-                        )),
+                        Notification::success(format!("Exported {shown} in {} ms", r.duration_ms)),
                         cx,
                     );
                     this.refresh_files(cx);
                 }
                 Ok((r, _)) => {
+                    let reason = r
+                        .errors()
+                        .next()
+                        .map(|d| d.message.clone())
+                        .unwrap_or_else(|| "see the console".into());
                     this.diagnostics = r.diagnostics;
                     this.right_tab = RightTab::Console;
                     window.push_notification(
-                        Notification::error("Export failed, see the console"),
+                        Notification::error(format!("Export failed: {reason}")),
                         cx,
                     );
                 }
@@ -958,14 +990,24 @@ impl Workspace {
         .detach();
     }
 
+    /// What an export renders: the same file as the preview, so exporting
+    /// while editing a library exports the design that uses it.
+    fn export_source(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<PathBuf> {
+        let source = self.render_target();
+        if source.is_none() {
+            window.push_notification(Notification::warning("Open a .scad file to export it"), cx);
+        }
+        source
+    }
+
     fn export_stl(&mut self, _: &ExportStl, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(file) = self.open_file.clone() {
+        if let Some(file) = self.export_source(window, cx) {
             self.export(file.with_extension("stl"), window, cx);
         }
     }
 
     fn export_as(&mut self, _: &ExportAs, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(file) = self.open_file.clone() else {
+        let Some(file) = self.export_source(window, cx) else {
             return;
         };
         let dir = file.parent().unwrap_or(Path::new(".")).to_path_buf();
@@ -975,26 +1017,29 @@ impl Workspace {
                 .map(|s| s.to_string_lossy())
                 .unwrap_or_default()
         );
-        let rx = cx.prompt_for_new_path(&dir, Some(&name));
-        cx.spawn_in(window, async move |this, cx| {
-            if let Ok(Ok(Some(path))) = rx.await {
-                this.update_in(cx, |this, window, cx| {
-                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if osc_engine::ExportFormat::from_extension(ext).is_err() {
-                        window.push_notification(
-                            Notification::error(
-                                "Unsupported format. Use .stl, .3mf, .off, .amf, .obj, .wrl, .dxf, .svg, .pdf, .png or .csg",
-                            ),
-                            cx,
-                        );
-                    } else {
-                        this.export(path, window, cx);
-                    }
-                })
-                .ok();
-            }
-        })
-        .detach();
+        let this = cx.entity().downgrade();
+        super::path_prompt::new_path(
+            "Export",
+            "File to export to. The extension picks the format: .stl, .3mf, .off, .amf, .obj, .wrl, .dxf, .svg, .pdf, .png or .csg",
+            &dir,
+            &name,
+            window,
+            cx,
+            move |path, window, cx| {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if osc_engine::ExportFormat::from_extension(ext).is_err() {
+                    window.push_notification(
+                        Notification::error(
+                            "Unsupported format. Use .stl, .3mf, .off, .amf, .obj, .wrl, .dxf, .svg, .pdf, .png or .csg",
+                        ),
+                        cx,
+                    );
+                } else {
+                    this.update(cx, |this, cx| this.export(path, window, cx))
+                        .ok();
+                }
+            },
+        );
     }
 
     fn view(&mut self, view: View, cx: &mut Context<Self>) {

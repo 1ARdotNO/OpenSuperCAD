@@ -386,22 +386,26 @@ impl Engine {
             binary: self.binary.clone(),
             source,
         })?;
-        let mut console = String::from_utf8_lossy(&output.stderr).into_owned();
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let mut console = stderr.clone();
         console.push_str(&String::from_utf8_lossy(&output.stdout));
         let mut diagnostics = parse_console(&console);
         let has_errors = diagnostics.iter().any(|d| d.severity == Severity::Error);
         let success = output.status.success() && !has_errors && out.exists();
         if !success && !has_errors {
             // Never fail silently: say what happened even without output.
+            // Some failures (e.g. a 3D object exported as SVG) are printed
+            // without an ERROR: prefix, as the last top-level line.
+            let name = out
+                .file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default();
             diagnostics.push(Diagnostic {
                 severity: Severity::Error,
-                message: format!(
-                    "OpenSCAD did not produce {} ({})",
-                    out.file_name()
-                        .map(|n| n.to_string_lossy())
-                        .unwrap_or_default(),
-                    output.status
-                ),
+                message: match last_message(&stderr) {
+                    Some(reason) => format!("OpenSCAD did not produce {name}: {reason}"),
+                    None => format!("OpenSCAD did not produce {name} ({})", output.status),
+                },
                 file: None,
                 line: None,
             });
@@ -434,6 +438,16 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
 /// On Linux without a display server, OpenSCAD needs a virtual X server to
 /// produce PNGs. `OPENSUPERCAD_PNG_WRAPPER` overrides the detection (an empty
 /// value or `none` disables it).
+/// The last unindented, non-empty line of OpenSCAD's stderr. Statistics
+/// lines (`   Volumes: 2`) are indented, so this is usually the reason.
+fn last_message(stderr: &str) -> Option<&str> {
+    stderr
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty() && !l.starts_with(char::is_whitespace))
+        .map(str::trim)
+}
+
 fn default_png_wrapper() -> Vec<String> {
     if let Ok(v) = std::env::var("OPENSUPERCAD_PNG_WRAPPER") {
         if v.trim().is_empty() || v.trim() == "none" {
@@ -489,6 +503,16 @@ mod tests {
         assert_eq!(e.backend_arg(), None);
         e.year = Some(2026);
         assert_eq!(e.backend_arg().as_deref(), Some("--backend=manifold"));
+    }
+
+    #[test]
+    fn last_message_skips_statistics() {
+        let stderr = "Top level object is a 3D object:\n   Volumes:  2\nCurrent top level object is not a 2D object.\n\n";
+        assert_eq!(
+            last_message(stderr),
+            Some("Current top level object is not a 2D object.")
+        );
+        assert_eq!(last_message("   Facets: 3\n"), None);
     }
 
     #[test]
