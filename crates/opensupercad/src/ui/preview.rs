@@ -543,7 +543,10 @@ impl Render for Preview {
         }
         let theme = cx.theme().clone();
         let image = self.openscad_image.clone().or_else(|| self.frame.clone());
+        // Wraps rather than clipping, so every toggle stays reachable in a
+        // narrow window.
         let toolbar = h_flex()
+            .flex_wrap()
             .gap_0p5()
             .px_2()
             .py_1()
