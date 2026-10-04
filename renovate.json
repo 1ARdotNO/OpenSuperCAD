@@ -4,7 +4,8 @@
     "config:recommended",
     ":dependencyDashboard",
     "group:allNonMajor",
-    "helpers:pinGitHubActionDigests"
+    "helpers:pinGitHubActionDigests",
+    "docker:pinDigests"
   ],
   "baseBranchPatterns": ["main"],
   "labels": ["dependencies"],
@@ -25,6 +26,16 @@
     "labels": ["security"],
     "automerge": true
   },
+  "customManagers": [
+    {
+      "description": "Tool versions annotated with `# renovate: datasource=... depName=...` in workflows (cargo install pins and similar).",
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)(?: versioning=(?<versioning>[^\\s]+))?\\s+[A-Z0-9_]+: ['\"]?(?<currentValue>[^'\"\\s]+)"
+      ]
+    }
+  ],
   "packageRules": [
     {
       "description": "Heavy automerge for everything: the CI suite (fmt + clippy -D warnings + tests against real OpenSCAD + Linux and macOS app builds + cargo-deny + dependency-review + CodeQL + Trivy) is the safety net, so anything that stays green merges itself.",

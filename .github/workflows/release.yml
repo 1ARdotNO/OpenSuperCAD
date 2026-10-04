@@ -105,8 +105,11 @@ jobs:
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name"
       - name: Debian package
+        env:
+          # renovate: datasource=crate depName=cargo-deb
+          CARGO_DEB_VERSION: 3.8.0
         run: |
-          cargo install cargo-deb --locked
+          cargo install cargo-deb --version "$CARGO_DEB_VERSION" --locked
           cargo deb -p opensupercad --no-build --output dist/
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
