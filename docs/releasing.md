@@ -72,5 +72,9 @@ removes a pinned snapshot (snapshots stay online for about a year). To bump:
 - Branch protection or a ruleset on `main` that requires the `ci-ok` check.
 - Settings → General → Default branch: **`main`**.
 - Settings → Pages → Source: **GitHub Actions** (for `pages.yml`).
+- Settings → Environments → `github-pages` → Deployment branches and tags:
+  allow `main`. The environment is created when Pages is first enabled and
+  only allows the default branch of that moment; otherwise deploys fail with
+  "Branch "main" is not allowed to deploy to github-pages".
 - Settings → General → Releases: **immutable releases**, so a published
   release's assets and `SHA256SUMS` can't be changed afterwards.
