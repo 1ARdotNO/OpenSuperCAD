@@ -42,6 +42,9 @@ pub struct Preview {
     drag_from: Option<Point<Pixels>>,
     busy: usize,
     raster_gen: u64,
+    /// Generation of the frame on screen. Any newer frame is shown, so a
+    /// stream of requests (playback, orbiting) can't starve the display.
+    shown_raster: u64,
     /// The background the current frame was drawn on, to redraw after a
     /// theme change.
     raster_bg: Option<[u8; 4]>,
@@ -104,6 +107,7 @@ impl Preview {
             drag_from: None,
             busy: 0,
             raster_gen: 0,
+            shown_raster: 0,
             raster_bg: None,
             render_gen: 0,
             last_message: None,
@@ -325,6 +329,11 @@ impl Preview {
                         let Some(anim) = this.anim.as_ref().filter(|a| a.playing) else {
                             return false;
                         };
+                        // Wait for the last frame to be drawn, so playback
+                        // slows down rather than queueing rasters.
+                        if this.shown_raster < this.raster_gen {
+                            return true;
+                        }
                         let next = (anim.frame + 1) % anim.steps.max(1);
                         this.show_frame(next, cx);
                         true
@@ -442,7 +451,8 @@ impl Preview {
         cx.spawn(async move |this, cx| {
             let png = job.await;
             this.update(cx, |this, cx| {
-                if generation == this.raster_gen {
+                if generation > this.shown_raster {
+                    this.shown_raster = generation;
                     this.frame = Some(Arc::new(Image::from_bytes(ImageFormat::Png, png)));
                     cx.notify();
                 }
