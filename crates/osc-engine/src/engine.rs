@@ -11,7 +11,7 @@ use crate::{Camera, Diagnostic, Severity, parse_console};
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
     #[error(
-        "could not find the `openscad` binary; install OpenSCAD or set OPENSUPERCAD_OPENSCAD to its path"
+        "could not find OpenSCAD; download it from OpenSuperCAD's Settings or with `opensupercad openscad install`, or set OPENSUPERCAD_OPENSCAD to its path"
     )]
     NotFound,
     #[error("failed to run {binary}: {source}")]

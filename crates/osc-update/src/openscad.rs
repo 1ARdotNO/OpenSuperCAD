@@ -235,6 +235,8 @@ fn unpack_dmg(file: &Path, into: &Path) -> Result<()> {
         ])
         .arg(&mount)
         .arg(file)
+        // A licence prompt would otherwise wait for input forever.
+        .stdin(std::process::Stdio::null())
         .output()
         .map_err(|source| UpdateError::Spawn {
             tool: "hdiutil",
