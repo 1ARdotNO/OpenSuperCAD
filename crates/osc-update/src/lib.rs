@@ -165,6 +165,8 @@ pub enum Install {
     },
     /// The macOS app bundle: we open the new `.dmg`.
     MacApp { bundle: PathBuf },
+    /// Installed by the Windows installer: we run the new, verified one.
+    WindowsInstaller { dir: PathBuf },
     /// A development build or a read-only location.
     Unsupported { reason: String },
 }
@@ -172,7 +174,8 @@ pub enum Install {
 impl Install {
     /// Work out how `exe` (normally `std::env::current_exe()`) was installed.
     pub fn detect(exe: &Path) -> Self {
-        let s = exe.to_string_lossy();
+        // Forward slashes, so the checks below also match Windows paths.
+        let s = exe.to_string_lossy().replace('\\', "/");
         if s.contains("/Cellar/") || s.contains("/Caskroom/") || s.starts_with("/opt/homebrew/") {
             return Install::Package {
                 manager: "Homebrew",
@@ -203,6 +206,12 @@ impl Install {
         if s.contains("/target/debug/") || s.contains("/target/release/") {
             return Install::Unsupported {
                 reason: "this is a development build; update with git pull and cargo build".into(),
+            };
+        }
+        // Inno Setup leaves its uninstaller next to the files it installed.
+        if let Some(dir) = exe.parent().filter(|d| d.join("unins000.exe").is_file()) {
+            return Install::WindowsInstaller {
+                dir: dir.to_path_buf(),
             };
         }
         match exe.parent() {
@@ -240,6 +249,9 @@ pub fn asset_name(version: Version, install: &Install, os: &str, arch: &str) -> 
         }
         (Install::MacApp { .. }, "macos") => {
             Some(format!("OpenSuperCAD-{version}-macos-universal.dmg"))
+        }
+        (Install::WindowsInstaller { .. }, "windows") if arch == "x86_64" => {
+            Some(format!("OpenSuperCAD-{version}-windows-x86_64-setup.exe"))
         }
         _ => None,
     }
@@ -417,6 +429,26 @@ impl Client {
     }
 }
 
+/// Start a verified Windows installer, silently, and return straight away.
+/// It closes the running app (Restart Manager) and starts the new version
+/// when it's done (`/relaunch=1`, see `packaging/windows/opensupercad.iss`).
+pub fn run_windows_installer(installer: &Path) -> Result<()> {
+    Command::new(installer)
+        .args([
+            "/SILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/CLOSEAPPLICATIONS",
+            "/relaunch=1",
+        ])
+        .spawn()
+        .map_err(|source| UpdateError::Spawn {
+            tool: "the installer",
+            source,
+        })?;
+    Ok(())
+}
+
 /// Unpack a verified release tarball and replace the binaries in `dir`.
 ///
 /// The new files are unpacked next to the old ones first, so the swap is a
@@ -541,12 +573,33 @@ mod tests {
             Install::detect(Path::new("/src/target/debug/opensupercad")),
             Install::Unsupported { .. }
         ));
+        assert!(matches!(
+            Install::detect(Path::new(r"C:\src\target\release\opensupercad.exe")),
+            Install::Unsupported { .. }
+        ));
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
             Install::detect(&dir.path().join("opensupercad")),
             Install::Tarball {
                 dir: dir.path().to_path_buf()
             }
+        );
+        // The Windows installer leaves its uninstaller next to the exe.
+        std::fs::write(dir.path().join("unins000.exe"), "").unwrap();
+        let installed = Install::detect(&dir.path().join("opensupercad.exe"));
+        assert_eq!(
+            installed,
+            Install::WindowsInstaller {
+                dir: dir.path().to_path_buf()
+            }
+        );
+        assert_eq!(
+            asset_name(Version(0, 7, 0), &installed, "windows", "x86_64").as_deref(),
+            Some("OpenSuperCAD-0.7.0-windows-x86_64-setup.exe")
+        );
+        assert_eq!(
+            asset_name(Version(0, 7, 0), &installed, "windows", "aarch64"),
+            None
         );
     }
 
