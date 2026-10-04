@@ -1,5 +1,5 @@
 # Binary package built by release CI from the x86_64 Linux release tarball.
-# @VERSION@ and @TARBALL@ are substituted by .github/workflows/release.yml.
+# @VERSION@, @TARBALL@ and @SHA256@ are substituted by .github/workflows/release.yml.
 pkgname=opensupercad
 pkgver=@VERSION@
 pkgrel=1
@@ -13,7 +13,7 @@ optdepends=('openscad: rendering, export and snapshots (strongly recommended)'
             'nodejs: run the Claude Code and Codex ACP adapters via npx')
 options=('!strip' '!debug')
 source=("@TARBALL@")
-sha256sums=('SKIP')
+sha256sums=('@SHA256@')
 
 package() {
   cd "opensupercad-$pkgver-x86_64-linux"

@@ -135,8 +135,9 @@ jobs:
         run: |
           useradd -m builder
           mkdir -p /tmp/pkg && cp "linux/opensupercad-$VERSION-x86_64-linux.tar.gz" /tmp/pkg/
+          sha=$(sha256sum "/tmp/pkg/opensupercad-$VERSION-x86_64-linux.tar.gz" | cut -d' ' -f1)
           sed -e "s/@VERSION@/$VERSION/" -e "s|@TARBALL@|opensupercad-$VERSION-x86_64-linux.tar.gz|" \
-            packaging/arch/PKGBUILD.bin > /tmp/pkg/PKGBUILD
+            -e "s/@SHA256@/$sha/" packaging/arch/PKGBUILD.bin > /tmp/pkg/PKGBUILD
           chown -R builder /tmp/pkg
           su builder -c "cd /tmp/pkg && makepkg --nodeps --noconfirm"
           mkdir -p dist && cp /tmp/pkg/*.pkg.tar.zst dist/
