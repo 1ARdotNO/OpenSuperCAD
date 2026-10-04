@@ -1,6 +1,11 @@
-//! OpenSuperCAD: an AI-powered, Zed-style editor for OpenSCAD.
+//! OpenSuperCAD: an AI-powered, native editor for OpenSCAD.
+
+// No console window on Windows; command-line runs attach to the terminal's
+// console instead (see `console.rs`).
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod agents;
+mod console;
 mod crash;
 mod doctor;
 mod openscad;
@@ -22,6 +27,11 @@ USAGE:
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Print to the terminal we were started from. Not for `mcp`: agents talk
+    // to it over pipes, which it already has.
+    if args.first().is_some_and(|a| a != "mcp") {
+        console::attach_parent();
+    }
     match args.first().map(String::as_str) {
         Some("mcp") => {
             crash::install("mcp");

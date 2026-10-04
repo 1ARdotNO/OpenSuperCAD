@@ -93,6 +93,11 @@ start. You can also install it yourself from
 installed with npm (`npx`, `gemini`) work as on the other platforms, and git
 comes from [Git for Windows](https://git-scm.com/download/win).
 
+OpenSuperCAD opens without a console window. Command-line use
+(`opensupercad doctor`, `update`, `openscad install`) prints to the terminal
+you run it from; the prompt may reappear before the output, so press Enter
+once it's done.
+
 > Windows support is new. Please [report problems](https://github.com/1ARdotNO/OpenSuperCAD/issues/new?template=bug_report.yml).
 
 ## Generic Linux tarball

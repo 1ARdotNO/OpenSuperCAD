@@ -92,7 +92,9 @@ Design principles:
   iteration be undone.
 - Keep crates UI-free and unit-tested. Only `crates/opensupercad` depends on GPUI.
 
-Conventions: Rust 2024 edition, `unsafe_code = "deny"`, no `dbg!`/`todo!`, and
+Conventions: Rust 2024 edition, `unsafe_code = "deny"` (one documented
+exception: the Windows `AttachConsole` call in `crates/opensupercad/src/console.rs`,
+see #44), no `dbg!`/`todo!`, and
 errors via `thiserror` in libraries (`anyhow` only in binaries). Match the
 comment density and naming of the surrounding code.
 
