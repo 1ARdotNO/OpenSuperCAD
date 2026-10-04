@@ -13,6 +13,13 @@ pub enum Outcome {
     /// The verified Windows installer is running; quit so it can replace
     /// the app. It starts the new version when it's done.
     InstallerStarted { version: Version },
+    /// The verified package was downloaded; installing it needs `sudo`, so
+    /// the user runs `command`.
+    PackageDownloaded {
+        version: Version,
+        path: PathBuf,
+        command: String,
+    },
     /// The user has to update through their package manager.
     Manual { how: String },
 }
@@ -89,6 +96,17 @@ pub fn apply(release: &Release) -> anyhow::Result<Outcome> {
             std::process::Command::new("open").arg(&dmg).status()?;
             Ok(Outcome::OpenedDmg { path: dmg })
         }
+        Install::LinuxPackage { format } => {
+            let dir = dirs::download_dir()
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(std::env::temp_dir);
+            let path = client.download_verified(release, asset, &dir)?;
+            Ok(Outcome::PackageDownloaded {
+                version: release.version,
+                command: format.install_command(&path),
+                path,
+            })
+        }
         Install::WindowsInstaller { .. } => {
             // Kept after we exit: the installer runs from here.
             let dir = std::env::temp_dir().join("opensupercad-update");
@@ -125,6 +143,10 @@ pub fn run_cli(check_only: bool) -> anyhow::Result<()> {
         ),
         Outcome::InstallerStarted { version } => println!(
             "Installing {version} (SHA-256 verified). OpenSuperCAD restarts when it's done."
+        ),
+        Outcome::PackageDownloaded { path, command, .. } => println!(
+            "Downloaded and verified {} (SHA-256). Install it with:\n\n    {command}",
+            path.display()
         ),
         Outcome::Manual { how } => println!("{how}"),
     }
