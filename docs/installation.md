@@ -2,7 +2,7 @@
 
 OpenSuperCAD is released continuously: every change merged to `main` is
 published as a [GitHub release](https://github.com/1ARdotNO/OpenSuperCAD/releases)
-with packages for Linux (Debian/Ubuntu and Arch) and macOS.
+with packages for Linux (Debian/Ubuntu and Arch), macOS and Windows.
 
 You need three things:
 
@@ -74,6 +74,22 @@ Install OpenSCAD with `brew install --cask openscad`, or from
 <https://openscad.org/downloads.html>. OpenSuperCAD looks for it on `PATH`
 and in `/Applications/OpenSCAD.app`.
 
+## Windows
+
+Download `OpenSuperCAD-<version>-windows-x86_64-setup.exe` from the
+[latest release](https://github.com/1ARdotNO/OpenSuperCAD/releases/latest) and
+run it. It installs for your user by default (no administrator prompt) and
+adds OpenSuperCAD to the Start menu. A portable
+`opensupercad-<version>-windows-x86_64.zip` is also published.
+
+Install OpenSCAD from [openscad.org](https://openscad.org/downloads.html) (or
+`winget install OpenSCAD.OpenSCAD`). OpenSuperCAD finds it on `PATH` or in
+`Program Files\OpenSCAD`, preferring the console build `openscad.com`. Agents
+installed with npm (`npx`, `gemini`) work as on the other platforms, and git
+comes from [Git for Windows](https://git-scm.com/download/win).
+
+> Windows support is new. Please [report problems](https://github.com/1ARdotNO/OpenSuperCAD/issues/new?template=bug_report.yml).
+
 ## Generic Linux tarball
 
 ```sh
@@ -99,6 +115,7 @@ How the update is applied depends on how you installed OpenSuperCAD:
 | Linux tarball (in a folder you can write to) | Replaced in place; click **Restart**. The previous binaries are kept as `*.old` |
 | macOS `.dmg` (`/Applications`) | The new `.dmg` is downloaded to *Downloads* and opened; drag OpenSuperCAD to Applications |
 | `.deb`, Arch package / AUR, Homebrew | Use your package manager; OpenSuperCAD tells you the command |
+| Windows | OpenSuperCAD links to the new installer |
 
 Every download is checked before anything changes: its SHA-256 must match
 the release's `SHA256SUMS` **and** the digest GitHub records for the asset

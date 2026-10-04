@@ -101,7 +101,7 @@ Mirrors the `1ARdotNO/wyrm` and `1ARdotNO/Jync` setups:
 
 | Workflow | Gate |
 | --- | --- |
-| `ci.yml` | fmt, clippy `-D warnings`, tests (real OpenSCAD via xvfb), MCP smoke test, app build on Linux + macOS, cargo-deny, dependency-review → **`ci-ok`** (the single required check) |
+| `ci.yml` | fmt, clippy `-D warnings`, tests (real OpenSCAD via xvfb), MCP smoke test, app build on Linux + macOS + Windows, cargo-deny, dependency-review → **`ci-ok`** (the single required check) |
 | CodeQL (GitHub default setup) | CodeQL for Rust and GitHub Actions, configured in repo settings (a workflow file would conflict with default setup) |
 | `trivy.yml` | Trivy fs scan, blocking on fixable HIGH/CRITICAL |
 | `zizmor.yml` | GitHub Actions hardening (SARIF) |
@@ -109,7 +109,7 @@ Mirrors the `1ARdotNO/wyrm` and `1ARdotNO/Jync` setups:
 | `sbom.yml` | SPDX SBOM to the dependency graph |
 | `pages.yml` | project site (`docs/index.html` + `docs/images`) to GitHub Pages |
 | `mega-linter.yml` | actionlint, yamllint, jsonlint, markdownlint, gitleaks |
-| `release.yml` | every code push to `main` → versioned GitHub Release: Linux x86_64/aarch64 tarballs + `.deb`, Arch `.pkg.tar.zst`, macOS universal `.dmg` |
+| `release.yml` | every code push to `main` → versioned GitHub Release: Linux x86_64/aarch64 tarballs + `.deb`, Arch `.pkg.tar.zst`, macOS universal `.dmg`, Windows installer + `.zip` |
 
 - **Renovate** (`renovate.json`) automerges everything that is green, majors
   included, with lockfile maintenance and vulnerability alerts. CI is the

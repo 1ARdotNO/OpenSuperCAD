@@ -208,6 +208,7 @@ impl Engine {
                 ]
                 .into_iter()
                 .map(PathBuf::from)
+                .chain(windows_install_dirs())
                 .find(|p| p.is_file())
             })
             .ok_or(EngineError::NotFound)?;
@@ -358,7 +359,7 @@ impl Engine {
             for (name, value) in &special {
                 source.push_str(&format!("{name} = {};\n", value.to_scad()));
             }
-            source.push_str(&format!("include <{}>\n", file.display()));
+            source.push_str(&format!("include <{}>\n", scad_include_path(&file)));
             wrapper_file = tempfile::Builder::new()
                 .prefix("osc-wrapper-")
                 .suffix(".scad")
@@ -428,16 +429,53 @@ fn parse_year(version: &str) -> Option<u32> {
         .and_then(|y| y.parse().ok())
 }
 
+/// Find an executable on `PATH`. On Windows `name.com` comes first (the
+/// console build of OpenSCAD, which prints to stdout/stderr), then `.exe`.
 fn find_in_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
+    let names: Vec<String> = if cfg!(windows) {
+        vec![
+            format!("{name}.com"),
+            format!("{name}.exe"),
+            name.to_owned(),
+        ]
+    } else {
+        vec![name.to_owned()]
+    };
     std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
+        .flat_map(|dir| names.iter().map(move |n| dir.join(n)))
         .find(|p| p.is_file())
 }
 
-/// On Linux without a display server, OpenSCAD needs a virtual X server to
-/// produce PNGs. `OPENSUPERCAD_PNG_WRAPPER` overrides the detection (an empty
-/// value or `none` disables it).
+/// Where the official installers put OpenSCAD on Windows.
+fn windows_install_dirs() -> Vec<PathBuf> {
+    [
+        "ProgramFiles",
+        "ProgramW6432",
+        "ProgramFiles(x86)",
+        "LOCALAPPDATA",
+    ]
+    .iter()
+    .filter_map(std::env::var_os)
+    .flat_map(|base| {
+        let base = PathBuf::from(base);
+        ["OpenSCAD", "OpenSCAD (Nightly)", "Programs/OpenSCAD"].map(|d| base.join(d))
+    })
+    .flat_map(|dir| [dir.join("openscad.com"), dir.join("openscad.exe")])
+    .collect()
+}
+
+/// A path OpenSCAD's `include <…>` accepts: no `\\?\` verbatim prefix (which
+/// `canonicalize` adds on Windows) and forward slashes.
+fn scad_include_path(path: &Path) -> String {
+    let s = path.to_string_lossy();
+    if !cfg!(windows) {
+        return s.into_owned();
+    }
+    let s = s.strip_prefix(r"\\?\").unwrap_or(&s);
+    s.replace('\\', "/")
+}
+
 /// The last unindented, non-empty line of OpenSCAD's stderr. Statistics
 /// lines (`   Volumes: 2`) are indented, so this is usually the reason.
 fn last_message(stderr: &str) -> Option<&str> {
@@ -448,6 +486,9 @@ fn last_message(stderr: &str) -> Option<&str> {
         .map(str::trim)
 }
 
+/// On Linux without a display server, OpenSCAD needs a virtual X server to
+/// produce PNGs. `OPENSUPERCAD_PNG_WRAPPER` overrides the detection (an empty
+/// value or `none` disables it).
 fn default_png_wrapper() -> Vec<String> {
     if let Ok(v) = std::env::var("OPENSUPERCAD_PNG_WRAPPER") {
         if v.trim().is_empty() || v.trim() == "none" {
@@ -503,6 +544,18 @@ mod tests {
         assert_eq!(e.backend_arg(), None);
         e.year = Some(2026);
         assert_eq!(e.backend_arg().as_deref(), Some("--backend=manifold"));
+    }
+
+    #[test]
+    fn include_paths_for_openscad() {
+        if cfg!(windows) {
+            assert_eq!(
+                scad_include_path(Path::new(r"\\?\C:\Users\a b\main.scad")),
+                "C:/Users/a b/main.scad"
+            );
+        } else {
+            assert_eq!(scad_include_path(Path::new("/p/a\\b.scad")), "/p/a\\b.scad");
+        }
     }
 
     #[test]

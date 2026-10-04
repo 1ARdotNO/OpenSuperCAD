@@ -81,6 +81,28 @@ jobs:
       - name: Build
         run: cargo build --locked -p opensupercad
 
+  # Windows: every crate, including the app. OpenSCAD isn't installed, so
+  # the integration tests skip themselves; git comes with the runner.
+  windows:
+    name: windows (clippy, test, build)
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: windows
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: Test
+        run: cargo test --locked --workspace
+      - name: Build
+        run: cargo build --locked -p opensupercad
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-24.04
@@ -110,7 +132,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [core, app, deny, dependency-review]
+    needs: [core, app, windows, deny, dependency-review]
     runs-on: ubuntu-24.04
     steps:
       - name: All gates passed
