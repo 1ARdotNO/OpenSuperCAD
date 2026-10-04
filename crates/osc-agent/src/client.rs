@@ -85,6 +85,12 @@ pub enum AgentEvent {
         session: String,
         entries: Vec<String>,
     },
+    /// The slash commands the agent accepts in this session (the whole
+    /// list, replacing any earlier one).
+    AvailableCommands {
+        session: String,
+        commands: Vec<SlashCommand>,
+    },
     /// The agent asks for permission; answer with
     /// [`AgentClient::respond_permission`].
     PermissionRequest {
@@ -100,6 +106,16 @@ pub enum AgentEvent {
     /// A line the agent printed on stderr (logs, auth hints).
     Stderr(String),
     Exited,
+}
+
+/// A slash command an agent advertises. Run it by sending `/name input` as
+/// an ordinary prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlashCommand {
+    pub name: String,
+    pub description: String,
+    /// What to type after the name, if the command takes input.
+    pub hint: Option<String>,
 }
 
 type Pending = HashMap<i64, mpsc::Sender<Result<Value, AgentError>>>;
@@ -434,6 +450,23 @@ fn handle_notification(inner: &Inner, method: &str, params: Option<&Value>) {
             session,
             entries: plan.entries.into_iter().map(|e| e.content).collect(),
         }),
+        schema::SessionUpdate::AvailableCommandsUpdate(update) => {
+            Some(AgentEvent::AvailableCommands {
+                session,
+                commands: update
+                    .available_commands
+                    .into_iter()
+                    .map(|c| SlashCommand {
+                        hint: match c.input {
+                            Some(schema::AvailableCommandInput::Unstructured(i)) => Some(i.hint),
+                            _ => None,
+                        },
+                        name: c.name,
+                        description: c.description,
+                    })
+                    .collect(),
+            })
+        }
         _ => None,
     };
     if let Some(event) = event {
@@ -592,7 +625,13 @@ mod tests {
                     Some("initialize") => send(json!({"jsonrpc":"2.0","id":id,"result":{
                         "protocolVersion":1,"agentCapabilities":{"loadSession":true}}})),
                     Some("session/new") => {
-                        send(json!({"jsonrpc":"2.0","id":id,"result":{"sessionId":"s1"}}))
+                        send(json!({"jsonrpc":"2.0","id":id,"result":{"sessionId":"s1"}}));
+                        send(
+                            json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1",
+                            "update":{"sessionUpdate":"available_commands_update","availableCommands":[
+                                {"name":"review","description":"Review the design","input":{"hint":"what to focus on"}},
+                                {"name":"compact","description":"Summarise the conversation"}]}}}),
+                        );
                     }
                     Some("session/prompt") => {
                         send(
@@ -716,6 +755,21 @@ mod tests {
                 .any(|e| matches!(e, AgentEvent::FileWritten { .. }))
         );
         assert!(events.iter().any(|e| matches!(e, AgentEvent::ToolCallUpdate { text: Some(t), status: Some(ToolStatus::Completed), .. } if t == "4 views")));
+        assert!(events.contains(&AgentEvent::AvailableCommands {
+            session: "s1".into(),
+            commands: vec![
+                SlashCommand {
+                    name: "review".into(),
+                    description: "Review the design".into(),
+                    hint: Some("what to focus on".into()),
+                },
+                SlashCommand {
+                    name: "compact".into(),
+                    description: "Summarise the conversation".into(),
+                    hint: None,
+                },
+            ],
+        }));
 
         // The MCP server was offered to the agent.
         let new = seen.iter().find(|m| m["method"] == "session/new").unwrap();
