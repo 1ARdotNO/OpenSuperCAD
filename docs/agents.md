@@ -53,6 +53,20 @@ opensupercad node            # which npx the agents use
 opensupercad node install    # download the pinned Node.js (SHA-256 verified)
 ```
 
+## Images
+
+Show the agent what you mean: a photo of an object to copy, a sketch, or a
+screenshot. **Paste** an image into the prompt (`Ctrl/Cmd-V`), **drop** image
+files onto it, or click the image button under the prompt to pick files. PNG,
+JPEG, GIF and WebP are accepted. Attached images show as thumbnails above the
+prompt; click × to remove one before sending.
+
+Images larger than 1568 px on their longest side are scaled down first, which
+is as much detail as models use, and keeps the prompt small. They're saved
+with the project's data, so they appear in the thread when you come back to
+it. The button is disabled when an agent says it doesn't accept images
+(Claude Code does).
+
 ## Slash commands
 
 Agents can offer slash commands over ACP, such as Claude Code's custom
