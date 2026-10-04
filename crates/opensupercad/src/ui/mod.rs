@@ -3,6 +3,7 @@
 mod agent_panel;
 mod customizer;
 mod git_panel;
+mod openscad_setup;
 mod path_prompt;
 mod picker;
 mod preview;
@@ -59,6 +60,9 @@ actions!(
         OpenIssues,
         ShowCrashReports,
         CheckForUpdates,
+        DownloadOpenScad,
+        LocateOpenScad,
+        AutoOpenScad,
     ]
 );
 
@@ -230,6 +234,8 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Open Issues Page", OpenIssues),
             MenuItem::separator(),
             MenuItem::action("Check for Updates…", CheckForUpdates),
+            MenuItem::action("Download OpenSCAD…", DownloadOpenScad),
+            MenuItem::action("Locate OpenSCAD…", LocateOpenScad),
             MenuItem::action("Show Crash Reports", ShowCrashReports),
         ]),
     ]

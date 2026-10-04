@@ -4,7 +4,7 @@ use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::switch::Switch;
-use gpui_kit::component::{ActiveTheme, IndexPath, Sizable, h_flex, v_flex};
+use gpui_kit::component::{ActiveTheme, Disableable, IndexPath, Sizable, h_flex, v_flex};
 use gpui_kit::prelude::*;
 use gpui_kit::*;
 use osc_agent::Registry;
@@ -12,6 +12,22 @@ use osc_project::{Project, ProjectSettings, Store};
 
 pub enum SettingsEvent {
     Changed(ProjectSettings),
+    DownloadOpenScad,
+    LocateOpenScad,
+    AutoOpenScad,
+}
+
+/// The OpenSCAD in use, as the workspace sees it.
+#[derive(Clone, Default)]
+pub struct OpenScadStatus {
+    /// Version and origin, or why there is none.
+    pub summary: String,
+    pub path: Option<String>,
+    /// Picked with *Locate…* (so *Find automatically* makes sense).
+    pub chosen: bool,
+    /// What *Download* fetches on this platform, if anything.
+    pub download: Option<String>,
+    pub downloading: bool,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsPanel {}
@@ -28,6 +44,7 @@ pub struct SettingsPanel {
     main_file: Option<Entity<SelectState<Vec<SharedString>>>>,
     agent: Option<Entity<SelectState<Vec<SharedString>>>>,
     backend: Option<Entity<SelectState<Vec<SharedString>>>>,
+    openscad: OpenScadStatus,
     _subs: Vec<Subscription>,
 }
 
@@ -39,8 +56,14 @@ impl SettingsPanel {
             main_file: None,
             agent: None,
             backend: None,
+            openscad: OpenScadStatus::default(),
             _subs: Vec::new(),
         }
+    }
+
+    pub fn set_openscad_status(&mut self, status: OpenScadStatus, cx: &mut Context<Self>) {
+        self.openscad = status;
+        cx.notify();
     }
 
     /// Rebuild the controls for a project.
@@ -164,7 +187,7 @@ fn open_agents_json(cx: &mut App) {
 impl Render for SettingsPanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
-        let row = |label: &'static str, help: &'static str, control: AnyElement| {
+        let row = |label: &'static str, help: &str, control: AnyElement| {
             v_flex()
                 .gap_1()
                 .child(div().text_sm().child(label))
@@ -172,7 +195,7 @@ impl Render for SettingsPanel {
                     div()
                         .text_xs()
                         .text_color(theme.muted_foreground)
-                        .child(help),
+                        .child(help.to_owned()),
                 )
                 .child(control)
         };
@@ -232,7 +255,64 @@ impl Render for SettingsPanel {
                     "Saved to .opensupercad/settings.json; commit it to share with your team.",
                 ));
         }
+        let openscad = self.openscad.clone();
         list = list
+            .child(heading("OPENSCAD"))
+            .child(row(
+                "OpenSCAD in use",
+                &openscad.summary,
+                v_flex()
+                    .gap_2()
+                    .when_some(openscad.path.clone(), |el, path| {
+                        el.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                                .child(path),
+                        )
+                    })
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .flex_wrap()
+                            .when_some(openscad.download.clone(), |el, label| {
+                                el.child(
+                                    Button::new("openscad-download")
+                                        .label(if openscad.downloading {
+                                            "Downloading…".to_owned()
+                                        } else {
+                                            format!("Download {label}")
+                                        })
+                                        .small()
+                                        .disabled(openscad.downloading)
+                                        .on_click(cx.listener(|_, _, _, cx| {
+                                            cx.emit(SettingsEvent::DownloadOpenScad)
+                                        })),
+                                )
+                            })
+                            .child(
+                                Button::new("openscad-locate")
+                                    .label("Locate…")
+                                    .small()
+                                    .ghost()
+                                    .on_click(cx.listener(|_, _, _, cx| {
+                                        cx.emit(SettingsEvent::LocateOpenScad)
+                                    })),
+                            )
+                            .when(openscad.chosen, |el| {
+                                el.child(
+                                    Button::new("openscad-auto")
+                                        .label("Find automatically")
+                                        .small()
+                                        .ghost()
+                                        .on_click(cx.listener(|_, _, _, cx| {
+                                            cx.emit(SettingsEvent::AutoOpenScad)
+                                        })),
+                                )
+                            }),
+                    )
+                    .into_any_element(),
+            ))
             .child(heading("APPLICATION"))
             .child(
                 h_flex().gap_2().child(

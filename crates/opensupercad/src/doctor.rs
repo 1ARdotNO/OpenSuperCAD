@@ -9,8 +9,9 @@ pub fn run() -> anyhow::Result<()> {
     match Engine::discover() {
         Ok(engine) => {
             println!(
-                "✓ OpenSCAD   {} ({})",
+                "✓ OpenSCAD   {} ({}, {})",
                 engine.version().unwrap_or_else(|e| e.to_string()),
+                crate::openscad::origin(&engine),
                 engine.binary.display()
             );
             if !engine.png_wrapper.is_empty() {
@@ -33,7 +34,13 @@ pub fn run() -> anyhow::Result<()> {
         Err(e) => {
             problems += 1;
             println!("✗ OpenSCAD   {e}");
-            println!("  see docs/installation.md#installing-openscad");
+            match osc_update::openscad::build_for_this_platform() {
+                Some(b) => println!(
+                    "  run `opensupercad openscad install` to download {} (SHA-256 verified)",
+                    crate::openscad::describe(&b)
+                ),
+                None => println!("  see docs/installation.md#installing-openscad"),
+            }
         }
     }
 

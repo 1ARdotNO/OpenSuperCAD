@@ -53,9 +53,33 @@ pub fn folder(
     cx: &mut App,
     on_path: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
 ) {
+    existing(title, "Folder to open", false, dir, window, cx, on_path);
+}
+
+/// Ask for an existing file, starting at `dir`.
+pub fn file(
+    title: &'static str,
+    hint: &'static str,
+    dir: &Path,
+    window: &mut Window,
+    cx: &mut App,
+    on_path: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
+) {
+    existing(title, hint, true, dir, window, cx, on_path);
+}
+
+fn existing(
+    title: &'static str,
+    hint: &'static str,
+    files: bool,
+    dir: &Path,
+    window: &mut Window,
+    cx: &mut App,
+    on_path: impl Fn(PathBuf, &mut Window, &mut App) + 'static,
+) {
     let rx = cx.prompt_for_paths(PathPromptOptions {
-        files: false,
-        directories: true,
+        files,
+        directories: !files,
         multiple: false,
         prompt: None,
     });
@@ -69,10 +93,8 @@ pub fn folder(
             }
             Ok(Ok(_)) => {}
             _ => {
-                cx.update(|window, cx| {
-                    fallback(title, "Folder to open", suggested, on_path, window, cx)
-                })
-                .ok();
+                cx.update(|window, cx| fallback(title, hint, suggested, on_path, window, cx))
+                    .ok();
             }
         })
         .detach();

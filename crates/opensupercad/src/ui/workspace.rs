@@ -2,6 +2,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 use gpui_kit::component::button::{Button, ButtonVariants};
@@ -52,6 +53,8 @@ pub struct Workspace {
     registry: osc_agent::Registry,
     settings: Entity<SettingsPanel>,
     openscad_version: Option<String>,
+    /// An OpenSCAD download in progress: bytes received and expected.
+    openscad_download: Option<(Arc<AtomicU64>, u64)>,
     project: Option<Project>,
     recent: Vec<RecentProject>,
     files: Vec<String>,
@@ -153,7 +156,16 @@ impl Workspace {
                 &settings,
                 window,
                 |this, _, ev: &SettingsEvent, window, cx| {
-                    let SettingsEvent::Changed(settings) = ev;
+                    let settings = match ev {
+                        SettingsEvent::Changed(settings) => settings,
+                        SettingsEvent::DownloadOpenScad => {
+                            return this.download_openscad(window, cx);
+                        }
+                        SettingsEvent::LocateOpenScad => {
+                            return this.locate_openscad(window, cx);
+                        }
+                        SettingsEvent::AutoOpenScad => return this.auto_openscad(window, cx),
+                    };
                     if let Some(project) = &this.project
                         && let Err(e) = project.save_settings(settings)
                     {
@@ -227,6 +239,7 @@ impl Workspace {
             registry,
             settings,
             openscad_version,
+            openscad_download: None,
             project: None,
             files: Vec::new(),
             file_tree,
@@ -254,6 +267,7 @@ impl Workspace {
             _subs: subs,
         };
 
+        ws.push_openscad_status(cx);
         let start = path.or_else(|| ws.recent.first().map(|r| r.root.clone()));
         if let Some(path) = start {
             ws.open_path(&path, window, cx);
@@ -265,6 +279,12 @@ impl Workspace {
         });
         // After the window's root exists, so the dialog has somewhere to go.
         window.defer(cx, super::report::offer_crash_report);
+        if ws.base_engine.is_none() {
+            let this = cx.entity().downgrade();
+            window.defer(cx, move |window, cx| {
+                super::openscad_setup::offer(this, window, cx)
+            });
+        }
         window.defer(cx, super::updates::startup_check);
         ws
     }
@@ -363,6 +383,174 @@ impl Workspace {
         let engine = Some(Arc::new(engine));
         self.engine = engine.clone();
         self.preview.update(cx, |p, _| p.set_engine(engine));
+    }
+
+    /// Switch to another OpenSCAD (after a download or *Locate…*).
+    fn set_base_engine(&mut self, engine: Option<Engine>, cx: &mut Context<Self>) {
+        self.openscad_version = engine.as_ref().and_then(|e| e.version().ok());
+        self.base_engine = engine;
+        if self.base_engine.is_some() {
+            let backend = self
+                .project
+                .as_ref()
+                .and_then(|p| p.settings().openscad_backend);
+            self.apply_backend(backend, cx);
+        } else {
+            self.engine = None;
+            self.preview.update(cx, |p, _| p.set_engine(None));
+        }
+        self.push_openscad_status(cx);
+        self.render(cx);
+        cx.notify();
+    }
+
+    /// Tell the Settings panel which OpenSCAD is in use.
+    fn push_openscad_status(&mut self, cx: &mut Context<Self>) {
+        let status = super::settings_panel::OpenScadStatus {
+            summary: match (&self.base_engine, &self.openscad_version) {
+                (Some(e), v) => format!(
+                    "{} ({})",
+                    v.as_deref().unwrap_or("OpenSCAD"),
+                    crate::openscad::origin(e)
+                ),
+                (None, _) => "Not found: rendering is disabled.".into(),
+            },
+            path: self
+                .base_engine
+                .as_ref()
+                .map(|e| e.binary.display().to_string()),
+            chosen: self
+                .base_engine
+                .as_ref()
+                .is_some_and(|e| crate::openscad::origin(e) == "chosen by you"),
+            download: osc_update::openscad::build_for_this_platform()
+                .map(|b| crate::openscad::describe(&b)),
+            downloading: self.openscad_download.is_some(),
+        };
+        self.settings
+            .update(cx, |s, cx| s.set_openscad_status(status, cx));
+    }
+
+    /// Download, verify and install the pinned OpenSCAD, then use it.
+    pub(super) fn download_openscad(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.openscad_download.is_some() {
+            return;
+        }
+        let Some(build) = osc_update::openscad::build_for_this_platform() else {
+            window.push_notification(
+                Notification::error(
+                    "There is no OpenSCAD download for this platform. Install it from \
+                     openscad.org, then use Locate OpenSCAD….",
+                ),
+                cx,
+            );
+            return;
+        };
+        let label = crate::openscad::describe(&build);
+        let received = Arc::new(AtomicU64::new(0));
+        self.openscad_download = Some((received.clone(), build.size));
+        self.push_openscad_status(cx);
+        window.push_notification(Notification::info(format!("Downloading {label}…")), cx);
+        let job = cx.background_spawn(async move {
+            crate::openscad::install(move |p| {
+                if let osc_update::openscad::Progress::Downloading { received: r, .. } = p {
+                    received.store(r, Ordering::Relaxed);
+                }
+            })
+        });
+        // Repaint the status bar's progress while it runs.
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(300))
+                    .await;
+                let running = this
+                    .update(cx, |this, cx| {
+                        cx.notify();
+                        this.openscad_download.is_some()
+                    })
+                    .unwrap_or(false);
+                if !running {
+                    break;
+                }
+            }
+        })
+        .detach();
+        cx.spawn_in(window, async move |this, cx| {
+            let result = job.await;
+            this.update_in(cx, |this, window, cx| {
+                this.openscad_download = None;
+                match result {
+                    Ok(_) => {
+                        this.set_base_engine(Engine::discover().ok(), cx);
+                        window.push_notification(
+                            Notification::success(format!(
+                                "{label} is installed (SHA-256 verified)."
+                            )),
+                            cx,
+                        );
+                    }
+                    Err(e) => {
+                        this.push_openscad_status(cx);
+                        window.push_notification(
+                            Notification::error(format!("Downloading OpenSCAD failed: {e}")),
+                            cx,
+                        );
+                    }
+                }
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Let the user pick the OpenSCAD to use.
+    pub(super) fn locate_openscad(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let start = if cfg!(target_os = "macos") {
+            PathBuf::from("/Applications")
+        } else {
+            dirs::home_dir().unwrap_or_default()
+        };
+        let this = cx.entity().downgrade();
+        super::path_prompt::file(
+            "Locate OpenSCAD",
+            "Path of the OpenSCAD program (or OpenSCAD.app)",
+            &start,
+            window,
+            cx,
+            move |path, window, cx| {
+                let result = crate::openscad::locate(&path);
+                this.update(cx, |this, cx| match result {
+                    Ok(engine) => {
+                        let binary = engine.binary.display().to_string();
+                        this.set_base_engine(Some(engine), cx);
+                        window.push_notification(
+                            Notification::success(format!("Using {binary}")),
+                            cx,
+                        );
+                    }
+                    Err(e) => window.push_notification(
+                        Notification::error(format!("Can't use that OpenSCAD: {e}")),
+                        cx,
+                    ),
+                })
+                .ok();
+            },
+        );
+    }
+
+    /// Forget the chosen OpenSCAD and find one automatically again.
+    fn auto_openscad(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Err(e) = crate::openscad::use_automatic() {
+            window.push_notification(Notification::error(e.to_string()), cx);
+            return;
+        }
+        self.set_base_engine(Engine::discover().ok(), cx);
+        let msg = match &self.base_engine {
+            Some(e) => format!("Using {}", e.binary.display()),
+            None => "OpenSCAD was not found.".into(),
+        };
+        window.push_notification(Notification::info(msg), cx);
     }
 
     fn refresh_files(&mut self, cx: &mut Context<Self>) {
@@ -1457,9 +1645,33 @@ impl Workspace {
                 .child(recent)
             })
             .when(self.engine.is_none(), |el| {
-                el.child(div().text_sm().text_color(theme.warning).child(
-                    "OpenSCAD was not found. Rendering is disabled. Run `opensupercad doctor`.",
-                ))
+                el.child(
+                    h_flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.warning)
+                                .child("OpenSCAD was not found. Rendering is disabled."),
+                        )
+                        .child(
+                            Button::new("download-openscad")
+                                .label("Download OpenSCAD")
+                                .small()
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.download_openscad(window, cx)
+                                })),
+                        )
+                        .child(
+                            Button::new("locate-openscad")
+                                .label("Locate…")
+                                .small()
+                                .ghost()
+                                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                    this.locate_openscad(window, cx)
+                                })),
+                        ),
+                )
             })
             .into_any_element()
     }
@@ -1591,11 +1803,21 @@ impl Workspace {
             .bg(theme.status_bar)
             .border_t_1()
             .border_color(theme.status_bar_border)
-            .child(
-                self.openscad_version
+            .child(match &self.openscad_download {
+                Some((received, total)) => {
+                    let received = received.load(Ordering::Relaxed);
+                    if received >= *total {
+                        "Verifying and unpacking OpenSCAD…".to_owned()
+                    } else {
+                        let pct = (received * 100).checked_div(*total).unwrap_or(0);
+                        format!("Downloading OpenSCAD… {pct}%")
+                    }
+                }
+                None => self
+                    .openscad_version
                     .clone()
                     .unwrap_or_else(|| "OpenSCAD not found".into()),
-            )
+            })
             .when_some(preview_msg, |el, m| el.child(m))
             .child(div().flex_1())
             .child(format!("Agent: {}", self.agent.read(cx).agent_name()))
@@ -1796,6 +2018,17 @@ impl gpui_kit::Render for Workspace {
             .on_action(cx.listener(Self::new_file))
             .on_action(cx.listener(Self::export_stl))
             .on_action(cx.listener(Self::export_as))
+            .on_action(cx.listener(|this, _: &DownloadOpenScad, window, cx| {
+                this.download_openscad(window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &LocateOpenScad, window, cx| {
+                    this.locate_openscad(window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &AutoOpenScad, window, cx| this.auto_openscad(window, cx)),
+            )
             .on_action(cx.listener(|this, a: &OpenRecent, window, cx| {
                 if let Some(r) = this.recent.get(a.ix).cloned() {
                     this.open_path(&r.root, window, cx);
