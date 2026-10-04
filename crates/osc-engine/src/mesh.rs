@@ -55,17 +55,16 @@ impl Mesh {
         }
         Ok(Mesh {
             colors: Vec::new(),
-            triangles: vertices
-                .chunks_exact(3)
-                .map(|t| [t[0], t[1], t[2]])
-                .collect(),
+            triangles: vertices.as_chunks::<3>().0.to_vec(),
         })
     }
 
     fn parse_binary(body: &[u8], count: usize) -> Self {
         let f = |b: &[u8]| f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
         let triangles = body
-            .chunks_exact(50)
+            .as_chunks::<50>()
+            .0
+            .iter()
             .take(count)
             .map(|rec| {
                 let v = |i: usize| {

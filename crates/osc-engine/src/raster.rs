@@ -424,7 +424,12 @@ mod tests {
     }
 
     fn coverage(img: &Image, bg: [u8; 4]) -> usize {
-        img.pixels.chunks_exact(4).filter(|p| *p != bg).count()
+        img.pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .filter(|p| **p != bg)
+            .count()
     }
 
     #[test]
