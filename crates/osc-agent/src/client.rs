@@ -153,6 +153,8 @@ impl AgentClient {
             .unwrap_or_else(|| spec.command.clone().into());
         let mut child = Command::new(program)
             .args(&spec.args)
+            // So `npx` finds `node` when the app was not started from a shell.
+            .env("PATH", crate::path::search_path_var())
             .envs(&spec.env)
             .current_dir(root)
             .stdin(Stdio::piped())

@@ -32,7 +32,8 @@ impl AgentSpec {
         }
     }
 
-    /// Whether the command can be found (absolute path or on `PATH`).
+    /// Whether the command can be found (absolute path or on the
+    /// [search path](crate::path::search_path)).
     pub fn is_available(&self) -> bool {
         self.resolve().is_some()
     }
@@ -52,8 +53,8 @@ impl AgentSpec {
         } else {
             vec![self.command.clone()]
         };
-        let path = std::env::var_os("PATH")?;
-        std::env::split_paths(&path)
+        crate::path::search_path()
+            .iter()
             .flat_map(|d| names.iter().map(move |n| d.join(n)))
             .find(|p| p.is_file())
     }
@@ -83,8 +84,10 @@ impl Registry {
                 "claude-code",
                 "Claude Code",
                 "npx",
-                &["-y", "@zed-industries/claude-code-acp@latest"],
-                "Requires Node.js (npx) and a Claude subscription or ANTHROPIC_API_KEY.",
+                &["-y", "@agentclientprotocol/claude-agent-acp@latest"],
+                "Claude Code's ACP adapter runs on Node.js 22 or newer (npx): install it from \
+                 https://nodejs.org. It signs in like Claude Code (Claude subscription or \
+                 ANTHROPIC_API_KEY).",
             ),
             AgentSpec::builtin(
                 "gemini",
@@ -97,8 +100,9 @@ impl Registry {
                 "codex",
                 "Codex",
                 "npx",
-                &["-y", "@zed-industries/codex-acp@latest"],
-                "Requires Node.js (npx) and an OpenAI account or OPENAI_API_KEY.",
+                &["-y", "@agentclientprotocol/codex-acp@latest"],
+                "Codex's ACP adapter runs on Node.js 22 or newer (npx): install it from \
+                 https://nodejs.org. It needs an OpenAI account or OPENAI_API_KEY.",
             ),
             AgentSpec::builtin(
                 "goose",

@@ -77,6 +77,9 @@ fn main() -> anyhow::Result<()> {
                 );
             }
             crash::install("app");
+            // Look up the login shell's PATH while the window opens, so the
+            // agent panel finds `npx` when started from the desktop menu.
+            osc_agent::path::warm_up();
             ui::run(path)
         }
     }

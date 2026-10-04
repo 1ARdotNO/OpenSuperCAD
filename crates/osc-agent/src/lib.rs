@@ -13,6 +13,7 @@
 //! which can be consumed from async UI code or blocking threads alike.
 
 mod client;
+pub mod path;
 mod registry;
 
 pub use acp;
