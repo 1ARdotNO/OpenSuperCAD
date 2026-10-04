@@ -3,6 +3,7 @@
 mod agent_panel;
 mod customizer;
 mod git_panel;
+mod path_prompt;
 mod picker;
 mod preview;
 mod report;
