@@ -195,6 +195,20 @@ If a project is not a git repository yet, the first checkpoint runs
 
 ![The command palette](images/command-palette.png)
 
+## Reporting bugs and crashes
+
+The **Help** menu (also in the command palette) has *Report a Bug…*,
+*Request a Feature…* and *Open Issues Page*. A bug report opens GitHub's
+bug form with your OpenSuperCAD version, OS and architecture filled in.
+
+If OpenSuperCAD (or its MCP server) crashes, it writes a crash report to the
+`crashes` folder in the data directory (see below). On the next start you're
+asked whether to report it. **Report on GitHub** opens a new issue with the
+report filled in, which you can review and edit before submitting. Nothing is
+sent automatically. Reports contain the version, OS, the panic message and a
+backtrace. They never include your files, and your home directory is shown
+as `~`. *Help → Show Crash Reports* opens the folder.
+
 ## Command line
 
 ```text
@@ -209,6 +223,7 @@ opensupercad --version
 | What | Linux | macOS |
 | --- | --- | --- |
 | Recent projects and threads | `~/.local/share/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
+| Crash reports | `~/.local/share/opensupercad/crashes/` | `~/Library/Application Support/OpenSuperCAD/crashes/` |
 | Agent overrides (`agents.json`) | `~/.config/opensupercad/` | `~/Library/Application Support/OpenSuperCAD/` |
 | Project settings | `<project>/.opensupercad/settings.json` | same |
 

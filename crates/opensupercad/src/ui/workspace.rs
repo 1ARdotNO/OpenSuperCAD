@@ -255,6 +255,8 @@ impl Workspace {
         if let Some(path) = start {
             ws.open_path(&path, window, cx);
         }
+        // After the window's root exists, so the dialog has somewhere to go.
+        window.defer(cx, super::report::offer_crash_report);
         ws
     }
 

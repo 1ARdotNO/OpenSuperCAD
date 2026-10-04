@@ -1,6 +1,7 @@
 //! OpenSuperCAD: an AI-powered, Zed-style editor for OpenSCAD.
 
 mod agents;
+mod crash;
 mod doctor;
 mod pipeline;
 mod session;
@@ -19,6 +20,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("mcp") => {
+            crash::install("mcp");
             let mut project = std::env::current_dir()?;
             let mut control = None;
             let mut it = args.iter().skip(1);
@@ -47,6 +49,7 @@ fn main() -> anyhow::Result<()> {
         }
         Some(flag) if flag.starts_with('-') => anyhow::bail!("unknown option `{flag}`\n\n{USAGE}"),
         path => {
+            crash::install("app");
             let path = path.map(PathBuf::from);
             ui::run(path)
         }
