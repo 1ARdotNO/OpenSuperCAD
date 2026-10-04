@@ -3,7 +3,7 @@
 pkgname=opensupercad
 pkgver=@VERSION@
 pkgrel=1
-pkgdesc="AI-powered, Zed-style editor for OpenSCAD"
+pkgdesc="AI-powered, native editor for OpenSCAD"
 arch=('x86_64')
 url="https://github.com/1ARdotNO/OpenSuperCAD"
 license=('MIT OR Apache-2.0')

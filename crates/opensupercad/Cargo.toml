@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
-description = "OpenSuperCAD: an AI-powered, Zed-style editor for OpenSCAD"
+description = "OpenSuperCAD: an AI-powered, native editor for OpenSCAD"
 
 [[bin]]
 name = "opensupercad"
@@ -38,7 +38,7 @@ maintainer = "OpenSuperCAD contributors"
 copyright = "OpenSuperCAD contributors"
 license-file = ["../../LICENSE-MIT", "0"]
 extended-description = """\
-An AI-powered, Zed-style editor for OpenSCAD. Drive parametric CAD designs \
+An AI-powered, native editor for OpenSCAD. Drive parametric CAD designs \
 with any Agent Client Protocol agent; a built-in MCP server lets the agent \
 render, look at snapshots from any angle and checkpoint every iteration in git."""
 section = "graphics"

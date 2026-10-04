@@ -82,8 +82,8 @@ user ──prompt──► agent panel ──ACP session/prompt──► agent p
 
 | Choice | Reason |
 | --- | --- |
-| GPUI via `gpui-kit` | Zed's UI framework, packaged with a complete component set (code editor with tree-sitter, docks, trees, inputs) and pinned to a published GPUI snapshot, so the build is reproducible from crates.io. |
+| GPUI via `gpui-kit` | A GPU-accelerated Rust UI framework, packaged with a complete component set (code editor with tree-sitter, docks, trees, inputs) and pinned to a published GPUI snapshot, so the build is reproducible from crates.io. |
 | `tree-sitter-openscad-ng` | The grammar maintained by the OpenSCAD organisation. |
 | Drive the `openscad` binary | 100% language compatibility, and every option and backend (CGAL or Manifold) available today. A native evaluator could come later. |
-| git CLI instead of libgit2 | The user's config, hooks, credentials and signing apply, as in Zed. |
+| git CLI instead of libgit2 | The user's config, hooks, credentials and signing apply. |
 | Hand-rolled MCP/ACP transports | Tiny, synchronous and fully testable, with no async runtime mixing with GPUI's executor. Protocol types come from the official ACP schema crate. |

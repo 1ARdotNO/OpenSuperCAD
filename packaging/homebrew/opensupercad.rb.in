@@ -6,7 +6,7 @@ cask "opensupercad" do
 
   url "https://github.com/1ARdotNO/OpenSuperCAD/releases/download/v#{version}/OpenSuperCAD-#{version}-macos-universal.dmg"
   name "OpenSuperCAD"
-  desc "AI-powered, Zed-style editor for OpenSCAD"
+  desc "AI-powered, native editor for OpenSCAD"
   homepage "https://github.com/1ARdotNO/OpenSuperCAD"
 
   depends_on macos: ">= :big_sur"
