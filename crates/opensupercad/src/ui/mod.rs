@@ -116,12 +116,13 @@ impl ThemeIsDark for App {
 /// Register the OpenSCAD grammar (maintained by the OpenSCAD project) with
 /// the editor's highlighter.
 fn register_openscad_language() {
-    let language: tree_sitter::Language = tree_sitter_openscad::LANGUAGE.into();
+    // The grammar converts into gpui-component's own tree-sitter `Language`,
+    // so the tree-sitter version always follows gpui-kit.
     LanguageRegistry::singleton().register(
         "openscad",
         &LanguageConfig::new(
             "openscad",
-            language,
+            tree_sitter_openscad::LANGUAGE.into(),
             vec![],
             tree_sitter_openscad::HIGHLIGHTS_QUERY,
             "",

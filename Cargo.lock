@@ -4901,7 +4901,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "tree-sitter",
  "tree-sitter-openscad-ng",
 ]
 
