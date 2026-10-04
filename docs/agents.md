@@ -1,6 +1,6 @@
 # AI agents
 
-OpenSuperCAD does not bundle a model. Like Zed, it is an
+OpenSuperCAD does not bundle a model. It is an
 [Agent Client Protocol (ACP)](https://agentclientprotocol.com) client, so any
 ACP agent can design with it, whichever model is behind it.
 

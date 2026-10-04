@@ -1,6 +1,6 @@
 # CLAUDE.md: how we work on OpenSuperCAD
 
-OpenSuperCAD is an AI-powered, Zed-style editor for OpenSCAD, written in Rust
+OpenSuperCAD is an AI-powered, native editor for OpenSCAD, written in Rust
 on GPUI. This file is the contract for anyone, human or AI agent, who works
 on the repository. Read it before you start.
 
@@ -75,7 +75,7 @@ crates/
   opensupercad  the GPUI desktop app (gpui-kit); `opensupercad mcp` runs the MCP server
 ```
 
-Design principles, borrowed from Zed:
+Design principles:
 
 - **Project-centric.** A project is a folder, usually a git repo, with its own
   files, settings and AI threads. Switching project switches all of them.

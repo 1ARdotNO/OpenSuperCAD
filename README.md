@@ -1,13 +1,13 @@
 # OpenSuperCAD
 
-**An AI-powered, Zed-style editor for [OpenSCAD](https://openscad.org).**
+**An AI-powered, native editor for [OpenSCAD](https://openscad.org).**
 Describe what you want, and an AI agent of your choice writes the parametric
 OpenSCAD code, renders it, *looks at it from several angles*, and iterates
 with you. Every iteration is checkpointed in git, so any step can be rolled
 back.
 
 - **Bring any agent.** OpenSuperCAD speaks the
-  [Agent Client Protocol](https://agentclientprotocol.com), like Zed, so you
+  [Agent Client Protocol](https://agentclientprotocol.com), so you
   can use Claude Code, Gemini CLI, Codex, Goose, OpenCode or your own agent,
   with whatever model you prefer.
 - **The agent can see.** A built-in MCP server gives the agent tools to
@@ -17,11 +17,11 @@ back.
 - **Still OpenSCAD.** The upstream `openscad` binary does the geometry, so
   every language feature, export format and option works. The customizer,
   view presets and F5/F6/F7 all behave as you expect.
-- **Projects, Zed-style.** Switch between project folders instantly, each
+- **Project-centric.** Switch between project folders instantly, each
   with its own files, settings and AI threads, plus git integration for
   commits and history.
-- **Fast and native.** Written in Rust on GPUI, Zed's GPU-accelerated UI
-  framework.
+- **Fast and native.** Written in Rust with a GPU-accelerated UI, on Linux,
+  macOS and Windows.
 
 ![OpenSuperCAD editing a parametric spur gear, with the customizer and live preview](docs/images/customizer-gear.png)
 

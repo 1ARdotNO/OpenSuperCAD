@@ -2,8 +2,7 @@
 
 ## The window
 
-The layout follows Zed: one window per project, with docks around a central
-editor.
+One window per project, with docks around a central editor.
 
 ![OpenSuperCAD](images/customizer-gear.png)
 
@@ -144,7 +143,7 @@ parameters, as in OpenSCAD.
 
 ## Git and checkpoints
 
-OpenSuperCAD manages git for you, Zed-style, through the git panel in the
+OpenSuperCAD manages git for you through the git panel in the
 project panel:
 
 - **Changes**: modified and untracked files.
