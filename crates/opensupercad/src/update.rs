@@ -45,13 +45,23 @@ pub fn apply(release: &Release) -> anyhow::Result<Outcome> {
                 ),
             });
         }
-        _ => osc_update::asset_name(
+        _ => match osc_update::asset_name(
             release.version,
             &install,
             std::env::consts::OS,
             std::env::consts::ARCH,
-        )
-        .ok_or_else(|| osc_update::UpdateError::NoAsset(release.tag.clone()))?,
+        ) {
+            Some(name) => name,
+            // Windows installs update through the installer for now.
+            None => {
+                return Ok(Outcome::Manual {
+                    how: format!(
+                        "Download and run the new installer from {}",
+                        release.html_url
+                    ),
+                });
+            }
+        },
     };
     let asset = release
         .asset(&name)

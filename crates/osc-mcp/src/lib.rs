@@ -362,7 +362,6 @@ mod tests {
         assert!(src.contains("width = 10"));
     }
 
-    #[cfg(unix)]
     #[test]
     fn control_channel_forwards_snapshots_and_camera() {
         use crate::control::{ControlReply, ControlRequest, serve};

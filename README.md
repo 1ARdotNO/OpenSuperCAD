@@ -39,10 +39,11 @@ back.
 | Debian / Ubuntu | `.deb` from the [latest release](https://github.com/1ARdotNO/OpenSuperCAD/releases/latest) → `sudo apt install ./opensupercad_*.deb` |
 | Arch Linux | `.pkg.tar.zst` from the latest release → `sudo pacman -U opensupercad-*.pkg.tar.zst`, or build [`packaging/arch/PKGBUILD`](packaging/arch/PKGBUILD) |
 | macOS (universal) | `.dmg` from the latest release |
+| Windows (x86_64) | `…-windows-x86_64-setup.exe` from the latest release, or the portable `.zip` |
 | From source | `cargo run --release -p opensupercad` |
 
 You also need OpenSCAD (`apt install openscad`, `pacman -S openscad`,
-`brew install --cask openscad`) and at least one ACP agent. Run
+`brew install --cask openscad`, `winget install OpenSCAD.OpenSCAD`) and at least one ACP agent. Run
 `opensupercad doctor` to check your setup.
 
 → **[Installation guide](docs/installation.md)** · **[Usage](docs/usage.md)** ·

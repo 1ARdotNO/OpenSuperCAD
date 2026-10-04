@@ -1597,7 +1597,6 @@ type ControlMsg = (ControlRequest, std::sync::mpsc::Sender<ControlReply>);
 fn start_control(window: &mut Window, cx: &mut Context<Workspace>) -> Option<PathBuf> {
     let (tx, rx) = async_channel::unbounded::<ControlMsg>();
     let socket = crate::pipeline::scratch_dir().join("control.sock");
-    #[cfg(unix)]
     osc_mcp::control::serve(&socket, move |req| {
         let (reply_tx, reply_rx) = std::sync::mpsc::channel();
         if tx.send_blocking((req, reply_tx)).is_err() {

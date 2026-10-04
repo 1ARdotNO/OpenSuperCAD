@@ -131,7 +131,11 @@ impl AgentClient {
         spec: &AgentSpec,
         root: &Path,
     ) -> Result<(Self, async_channel::Receiver<AgentEvent>), AgentError> {
-        let mut child = Command::new(&spec.command)
+        let program = spec
+            .resolve()
+            .map(|p| p.into_os_string())
+            .unwrap_or_else(|| spec.command.clone().into());
+        let mut child = Command::new(program)
             .args(&spec.args)
             .envs(&spec.env)
             .current_dir(root)

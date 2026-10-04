@@ -32,7 +32,7 @@
       "customType": "regex",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)(?: versioning=(?<versioning>[^\\s]+))?\\s+[A-Z0-9_]+: ['\"]?(?<currentValue>[^'\"\\s]+)"
+        "# renovate: datasource=(?<datasource>[a-z-]+)(?: registryUrl=(?<registryUrl>[^\\s]+))? depName=(?<depName>[^\\s]+)(?: versioning=(?<versioning>[^\\s]+))?\\s+[A-Z0-9_]+: ['\"]?(?<currentValue>[^'\"\\s]+)"
       ]
     }
   ],

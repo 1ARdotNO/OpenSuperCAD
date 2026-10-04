@@ -8,6 +8,7 @@
 #   Linux   x86_64 + aarch64 tarballs and .deb (Debian/Ubuntu)
 #   Arch    x86_64 .pkg.tar.zst (plus packaging/arch/PKGBUILD for the AUR)
 #   macOS   universal (arm64 + x86_64) .dmg and tarball
+#   Windows x86_64 installer (Inno Setup) and portable .zip
 #   Homebrew cask (opensupercad.rb asset; pushed to a tap if configured)
 #
 # Optional repository secrets/variables enable more distribution channels;
@@ -212,9 +213,55 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  windows:
+    name: windows x86_64
+    needs: version
+    if: needs.version.outputs.version != ''
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      # renovate: datasource=nuget registryUrl=https://community.chocolatey.org/api/v2 depName=innosetup
+      INNOSETUP_VERSION: 6.7.1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: release-windows
+      - name: Stamp version
+        run: sed -i "0,/^version = \".*\"/s//version = \"$VERSION\"/" Cargo.toml
+      - name: Build
+        run: cargo build --locked --release -p opensupercad -p osc-mcp
+      - name: Portable zip
+        run: |
+          name="opensupercad-$VERSION-windows-x86_64"
+          mkdir -p "dist/$name"
+          cp target/release/opensupercad.exe target/release/opensupercad-mcp.exe \
+             LICENSE-MIT LICENSE-APACHE README.md "dist/$name/"
+          (cd dist && 7z a -tzip "$name.zip" "$name" >/dev/null)
+          rm -rf "dist/$name"
+      - name: Installer (Inno Setup)
+        run: |
+          choco install innosetup --version "$INNOSETUP_VERSION" --no-progress -y
+          "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
+            "/DVersion=$VERSION" "/DSource=$(cygpath -w "$PWD/target/release")" \
+            "/O$(cygpath -w "$PWD/dist")" packaging/windows/opensupercad.iss
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: windows-x86_64
+          path: dist/*
+          if-no-files-found: error
+
   publish:
     name: publish release
-    needs: [version, linux, arch, macos]
+    needs: [version, linux, arch, macos, windows]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

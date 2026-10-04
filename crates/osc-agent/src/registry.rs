@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -34,18 +34,28 @@ impl AgentSpec {
 
     /// Whether the command can be found (absolute path or on `PATH`).
     pub fn is_available(&self) -> bool {
+        self.resolve().is_some()
+    }
+
+    /// The executable to run. On Windows, Node-based agents are `.cmd`
+    /// shims (`npx.cmd`), which `Command` does not find by bare name.
+    pub fn resolve(&self) -> Option<PathBuf> {
         let cmd = Path::new(&self.command);
         if cmd.is_absolute() {
-            return cmd.is_file();
+            return cmd.is_file().then(|| cmd.to_path_buf());
         }
-        std::env::var_os("PATH")
-            .map(|p| {
-                std::env::split_paths(&p).any(|d| {
-                    d.join(&self.command).is_file()
-                        || d.join(format!("{}.exe", self.command)).is_file()
-                })
-            })
-            .unwrap_or(false)
+        let names: Vec<String> = if cfg!(windows) {
+            [".exe", ".cmd", ".bat", ""]
+                .iter()
+                .map(|ext| format!("{}{ext}", self.command))
+                .collect()
+        } else {
+            vec![self.command.clone()]
+        };
+        let path = std::env::var_os("PATH")?;
+        std::env::split_paths(&path)
+            .flat_map(|d| names.iter().map(move |n| d.join(n)))
+            .find(|p| p.is_file())
     }
 }
 
