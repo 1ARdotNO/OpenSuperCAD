@@ -5,6 +5,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod agents;
+mod attachments;
 mod console;
 mod crash;
 mod doctor;

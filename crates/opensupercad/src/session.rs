@@ -6,7 +6,7 @@
 //! enabled), so each AI iteration can be rolled back. Cancelling and answering
 //! permission prompts go straight to the agent and work mid-turn.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 
 use osc_agent::{AgentClient, AgentEvent, AgentSpec, first_turn_prompt, text_block};
@@ -31,10 +31,16 @@ pub enum SessionEvent {
         stop_reason: String,
         checkpoint: Option<CommitInfo>,
     },
+    /// Whether the agent accepts images in prompts (ACP prompt capability).
+    AcceptsImages(bool),
 }
 
 enum Command {
-    Prompt { text: String, first_turn: bool },
+    Prompt {
+        text: String,
+        first_turn: bool,
+        images: Vec<PathBuf>,
+    },
 }
 
 pub struct Session {
@@ -79,8 +85,13 @@ impl Session {
         }
     }
 
-    pub fn prompt(&self, text: String, first_turn: bool) {
-        let _ = self.commands.send(Command::Prompt { text, first_turn });
+    /// Send `text` with the attached `images` (saved image files).
+    pub fn prompt(&self, text: String, first_turn: bool, images: Vec<PathBuf>) {
+        let _ = self.commands.send(Command::Prompt {
+            text,
+            first_turn,
+            images,
+        });
     }
 
     pub fn cancel(&self) {
@@ -170,6 +181,9 @@ fn worker(
     let init = client
         .initialize()
         .map_err(|e| format!("initialize failed: {e}"))?;
+    send(SessionEvent::AcceptsImages(
+        init.agent_capabilities.prompt_capabilities.image,
+    ));
     let (cmd, args) = mcp_command(&opts.project_root, opts.control.as_deref());
     let mcp = vec![osc_agent::opensupercad_mcp_server(&cmd, args)];
 
@@ -199,11 +213,16 @@ fn worker(
         .unwrap_or_default();
     // A resumed session already had its skill context.
     let mut skill_sent = resumed;
-    while let Ok(Command::Prompt { text, first_turn }) = commands.recv() {
+    while let Ok(Command::Prompt {
+        text,
+        first_turn,
+        images,
+    }) = commands.recv()
+    {
         send(SessionEvent::Status(Status::Busy));
         // Agents only recognise a slash command at the very start of the
         // prompt, so commands go alone; the skill rides the next message.
-        let blocks = if text.starts_with('/') {
+        let mut blocks = if text.starts_with('/') {
             vec![text_block(text.clone())]
         } else if first_turn || !skill_sent {
             skill_sent = true;
@@ -211,6 +230,7 @@ fn worker(
         } else {
             vec![text_block(text.clone())]
         };
+        blocks.extend(images.iter().filter_map(|path| image_block(path)));
         let stop_reason = match client.prompt(&session, blocks) {
             Ok(reason) => serde_json::to_value(reason)
                 .ok()
@@ -245,9 +265,35 @@ fn checkpoint_after_turn(root: &std::path::Path, prompt: &str) -> Option<CommitI
     repo.checkpoint(&format!("AI: {summary}")).ok().flatten()
 }
 
+/// An attached image file as an ACP image block.
+fn image_block(path: &Path) -> Option<osc_agent::acp::v1::ContentBlock> {
+    use base64::Engine as _;
+    let mime = crate::attachments::mime_for(path)?;
+    let bytes = std::fs::read(path).ok()?;
+    let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Some(osc_agent::acp::v1::ContentBlock::Image(
+        osc_agent::acp::v1::ImageContent::new(data, mime),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn attached_images_become_acp_image_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let png = dir.path().join("a.png");
+        std::fs::write(&png, b"\x89PNG").unwrap();
+        let Some(osc_agent::acp::v1::ContentBlock::Image(block)) = image_block(&png) else {
+            panic!("expected an image block");
+        };
+        assert_eq!(block.mime_type, "image/png");
+        assert_eq!(block.data, "iVBORw==");
+        // Unknown types and missing files are skipped, not sent.
+        assert!(image_block(&dir.path().join("a.bmp")).is_none());
+        assert!(image_block(&dir.path().join("gone.png")).is_none());
+    }
 
     #[test]
     fn mcp_command_points_back_at_us() {

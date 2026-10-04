@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use gpui_kit::component::button::{Button, ButtonVariants};
 use gpui_kit::component::input::{
-    Escape, IndentInline, InputEvent, MoveDown, MoveUp, Position, Textarea, TextareaState,
+    Escape, IndentInline, InputEvent, MoveDown, MoveUp, Paste, Position, Textarea, TextareaState,
 };
 use gpui_kit::component::notification::Notification;
 use gpui_kit::component::scroll::ScrollableElement;
@@ -13,7 +13,7 @@ use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{
-    ActiveTheme, IconName, IndexPath, Selectable, Sizable, WindowExt, h_flex, v_flex,
+    ActiveTheme, Disableable, IconName, IndexPath, Selectable, Sizable, WindowExt, h_flex, v_flex,
 };
 use gpui_kit::prelude::*;
 use gpui_kit::*;
@@ -63,6 +63,10 @@ pub struct AgentPanel {
     commands: HashMap<String, Vec<SlashCommand>>,
     /// Node.js is being downloaded for an `npx` agent.
     node_download: bool,
+    /// Images attached to the next prompt (saved files, see `attachments`).
+    attachments: Vec<PathBuf>,
+    /// Whether the running agent accepts images; unknown until it starts.
+    accepts_images: Option<bool>,
     /// The highlighted entry in the slash-command list.
     slash_ix: usize,
     /// Esc closed the list for the `/word` being typed.
@@ -106,7 +110,7 @@ impl AgentPanel {
                         // Enter on a partial `/name` completes it first.
                         if let Some(name) = this.completion(&text) {
                             this.complete(&name, window, cx);
-                        } else if !text.is_empty() {
+                        } else if !text.is_empty() || !this.attachments.is_empty() {
                             state.update(cx, |s, cx| s.set_value("", window, cx));
                             this.send(text, window, cx);
                         }
@@ -160,6 +164,8 @@ impl AgentPanel {
             session_id: None,
             commands: HashMap::new(),
             node_download: false,
+            attachments: Vec::new(),
+            accepts_images: None,
             slash_ix: 0,
             slash_closed: false,
             _events: None,
@@ -283,6 +289,7 @@ impl AgentPanel {
         // It named the stopped agent's session; a new thread must not
         // resume it (#81).
         self.session_id = None;
+        self.accepts_images = None;
     }
 
     pub fn new_thread(&mut self, cx: &mut Context<Self>) {
@@ -335,6 +342,17 @@ impl AgentPanel {
             self.offer_node(text, window, cx);
             return;
         }
+        if !self.attachments.is_empty() && self.accepts_images == Some(false) {
+            window.push_notification(
+                Notification::warning(format!(
+                    "{} doesn't accept images. Remove them, or pick another agent.",
+                    self.agent_name()
+                )),
+                cx,
+            );
+            return;
+        }
+        let images = std::mem::take(&mut self.attachments);
         let session_id = early_session(self.session.is_some(), &self.session_id);
         let thread = self.thread.get_or_insert_with(|| {
             let mut t = Thread::new(self.agent_id.clone());
@@ -347,17 +365,155 @@ impl AgentPanel {
                 .messages
                 .iter()
                 .all(|m| m.role != Role::User || m.text.starts_with('/'));
-        thread.push(Role::User, text.clone());
+        if !text.is_empty() {
+            thread.push(Role::User, text.clone());
+        }
+        if !images.is_empty() {
+            thread.push(Role::System, encode_attachments(&images));
+        }
         self.save_thread();
         self.reload_threads();
 
         self.ensure_session(root, name, auto_checkpoint, cx);
         if let Some(session) = &self.session {
             // A thread resumed into a fresh agent process gets the skill again.
-            session.prompt(text, first_turn);
+            session.prompt(text, first_turn, images);
         }
         self.scroll.scroll_to_bottom();
         cx.notify();
+    }
+
+    /// *Attach…*: pick image files for the next prompt.
+    fn pick_attachments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let paths = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Attach".into()),
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            if let Ok(Ok(Some(paths))) = paths.await {
+                this.update_in(cx, |this, window, cx| this.attach_files(paths, window, cx))
+                    .ok();
+            }
+        })
+        .detach();
+    }
+
+    /// Attach image files (picked or dropped).
+    fn attach_files(&mut self, paths: Vec<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+        for path in paths {
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            match std::fs::read(&path) {
+                Ok(bytes) => self.attach_bytes(bytes, name, window, cx),
+                Err(e) => window.push_notification(
+                    Notification::error(format!("Couldn't read {name}: {e}")),
+                    cx,
+                ),
+            }
+        }
+    }
+
+    /// Check, downscale and save an image for the next prompt, off the UI
+    /// thread. `name` is for error messages.
+    fn attach_bytes(
+        &mut self,
+        bytes: Vec<u8>,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((root, ..)) = &self.project else {
+            return;
+        };
+        let dir = self.store.project_dir(root).join("attachments");
+        let job = cx.background_spawn(async move {
+            let (bytes, ext) = crate::attachments::prepare(&bytes)?;
+            Ok::<_, anyhow::Error>(crate::attachments::save(&dir, &bytes, ext)?)
+        });
+        cx.spawn_in(window, async move |this, cx| {
+            let result = job.await;
+            this.update_in(cx, |this, window, cx| {
+                match result {
+                    Ok(path) => this.attachments.push(path),
+                    Err(e) => window.push_notification(
+                        Notification::error(format!("Couldn't attach {name}: {e}")),
+                        cx,
+                    ),
+                }
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
+    /// Paste: an image on the clipboard is attached; text pastes as usual.
+    /// Returns whether an image was taken.
+    fn paste_image(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let Some(item) = cx.read_from_clipboard() else {
+            return false;
+        };
+        let images: Vec<Vec<u8>> = item
+            .entries()
+            .iter()
+            .filter_map(|e| match e {
+                ClipboardEntry::Image(image) => Some(image.bytes.clone()),
+                _ => None,
+            })
+            .collect();
+        if images.is_empty() || self.project.is_none() {
+            return false;
+        }
+        for bytes in images {
+            self.attach_bytes(bytes, "the pasted image".into(), window, cx);
+        }
+        true
+    }
+
+    /// The thumbnails of the images attached to the next prompt.
+    fn render_attachments(
+        &self,
+        theme: &gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.attachments.is_empty() {
+            return None;
+        }
+        let mut row = h_flex().gap_2().flex_wrap();
+        for (ix, path) in self.attachments.iter().enumerate() {
+            row = row.child(
+                div()
+                    .relative()
+                    .child(
+                        img(path.clone())
+                            .size(px(56.))
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme.border)
+                            .object_fit(ObjectFit::Cover),
+                    )
+                    .child(
+                        div().absolute().top(px(-6.)).right(px(-6.)).child(
+                            Button::new(("remove-attachment", ix))
+                                .icon(IconName::Close)
+                                .xsmall()
+                                .rounded_full()
+                                .tooltip("Remove")
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    if ix < this.attachments.len() {
+                                        this.attachments.remove(ix);
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                    ),
+            );
+        }
+        Some(row.pt_1().into_any_element())
     }
 
     /// The selected agent runs on `npx`, no Node.js is installed, and there
@@ -609,6 +765,10 @@ impl AgentPanel {
 
     fn on_session_event(&mut self, ev: SessionEvent, cx: &mut Context<Self>) {
         match ev {
+            SessionEvent::AcceptsImages(yes) => {
+                self.accepts_images = Some(yes);
+                cx.notify();
+            }
             SessionEvent::Status(status) => {
                 if let Status::Failed(msg) = &status {
                     let msg = format!("⚠ {msg}");
@@ -787,6 +947,27 @@ fn decode_snapshots(text: &str) -> Option<(String, Vec<(String, PathBuf)>)> {
         .map(|(l, p)| (l.to_owned(), PathBuf::from(p)))
         .collect();
     Some((file, images))
+}
+
+/// System messages starting with this marker hold the images the user
+/// attached to the message before: `␝path␟path…`.
+const ATTACHMENT_MARKER: char = '\u{1d}';
+
+fn encode_attachments(paths: &[PathBuf]) -> String {
+    let mut text = String::from(ATTACHMENT_MARKER);
+    let paths: Vec<String> = paths.iter().map(|p| p.display().to_string()).collect();
+    text.push_str(&paths.join("\u{1f}"));
+    text
+}
+
+fn decode_attachments(text: &str) -> Option<Vec<PathBuf>> {
+    let rest = text.strip_prefix(ATTACHMENT_MARKER)?;
+    Some(
+        rest.split('\u{1f}')
+            .filter(|p| !p.is_empty())
+            .map(PathBuf::from)
+            .collect(),
+    )
 }
 
 /// Tool-call messages are stored as `id␟title␟status␟output`.
@@ -973,8 +1154,17 @@ impl Render for AgentPanel {
                     cx.stop_propagation();
                 }
             }))
+            .capture_action(cx.listener(|this, _: &Paste, window, cx| {
+                if this.paste_image(window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, window, cx| {
+                this.attach_files(paths.paths().to_vec(), window, cx)
+            }))
             .child(permissions)
             .children(self.render_slash_list(&theme, cx))
+            .children(self.render_attachments(&theme, cx))
             .child(Textarea::new(&self.prompt).w_full())
             .child(
                 h_flex()
@@ -993,6 +1183,22 @@ impl Render for AgentPanel {
                         el.child(Spinner::new().xsmall())
                     })
                     .child(div().flex_1())
+                    .child({
+                        let no_images = self.accepts_images == Some(false);
+                        Button::new("attach")
+                            .icon(gpui_kit::assets::IconName::ImagePlus)
+                            .ghost()
+                            .xsmall()
+                            .disabled(no_images || self.project.is_none())
+                            .tooltip(if no_images {
+                                "This agent doesn't accept images"
+                            } else {
+                                "Attach images (or paste or drop them here)"
+                            })
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.pick_attachments(window, cx)
+                            }))
+                    })
                     .when(busy, |el| {
                         el.child(
                             Button::new("stop")
@@ -1185,6 +1391,21 @@ impl AgentPanel {
                         })
                         .into_any_element()
                 }
+                Role::System if decode_attachments(&m.text).is_some() => {
+                    let mut row = h_flex().gap_2().flex_wrap().justify_end();
+                    for path in decode_attachments(&m.text).unwrap_or_default() {
+                        row = row.child(
+                            img(path)
+                                .max_w(px(220.))
+                                .max_h(px(165.))
+                                .rounded_md()
+                                .border_1()
+                                .border_color(theme.border)
+                                .object_fit(ObjectFit::Contain),
+                        );
+                    }
+                    row.into_any_element()
+                }
                 Role::System if decode_snapshots(&m.text).is_some() => {
                     let (file, images) = decode_snapshots(&m.text).unwrap_or_default();
                     let mut grid = h_flex().gap_2().flex_wrap();
@@ -1276,9 +1497,12 @@ impl AgentPanel {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{
-        SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_snapshots, decode_tool, early_session,
-        encode_tool, matching_commands, slash_query, typed_command_hint,
+        SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_attachments, decode_snapshots,
+        decode_tool, early_session, encode_attachments, encode_tool, matching_commands,
+        slash_query, typed_command_hint,
     };
 
     #[test]
@@ -1349,5 +1573,14 @@ mod tests {
         // The previous thread's agent was stopped: start fresh.
         assert_eq!(early_session(false, &id), None);
         assert_eq!(early_session(true, &None), None);
+    }
+
+    #[test]
+    fn attachment_messages_roundtrip() {
+        let paths = vec![PathBuf::from("/d/a 1.png"), PathBuf::from("/d/b.jpg")];
+        let text = encode_attachments(&paths);
+        assert_eq!(decode_attachments(&text), Some(paths));
+        assert!(decode_attachments("hello").is_none());
+        assert!(decode_snapshots(&text).is_none());
     }
 }

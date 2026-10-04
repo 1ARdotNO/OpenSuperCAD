@@ -81,7 +81,8 @@ commit to share them:
 
 1. Open the agent panel (`Ctrl/Cmd-?`) and pick an agent (see [agents.md](agents.md)).
 2. Describe what you want: *"A wall-mount bracket for a 25 mm pipe, two M4
-   screw holes, printable without supports."*
+   screw holes, printable without supports."* You can paste or drop photos
+   and sketches into the prompt too (see [agents.md](agents.md#images)).
 3. The agent edits the `.scad` files, renders, and **looks at snapshots from
    several angles** through the built-in MCP tools before reporting back.
    You see each tool call and the snapshots it took, and the preview updates
