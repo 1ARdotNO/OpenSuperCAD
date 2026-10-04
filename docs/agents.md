@@ -22,15 +22,23 @@ When you start a thread, OpenSuperCAD:
 
 | Agent | Command OpenSuperCAD runs | You need |
 | --- | --- | --- |
-| Claude Code | `npx -y @zed-industries/claude-code-acp@latest` | Node.js, plus a Claude subscription (`claude /login`) or `ANTHROPIC_API_KEY` |
+| Claude Code | `npx -y @agentclientprotocol/claude-agent-acp@latest` | [Node.js](https://nodejs.org) 22+, plus a Claude subscription (`claude /login`) or `ANTHROPIC_API_KEY` |
 | Gemini CLI | `gemini --experimental-acp` | `npm i -g @google/gemini-cli`, Google login or `GEMINI_API_KEY` |
-| Codex | `npx -y @zed-industries/codex-acp@latest` | Node.js, plus a ChatGPT login or `OPENAI_API_KEY` |
+| Codex | `npx -y @agentclientprotocol/codex-acp@latest` | [Node.js](https://nodejs.org) 22+, plus a ChatGPT login or `OPENAI_API_KEY` |
 | Goose | `goose acp` | [Goose](https://block.github.io/goose/), configured with any provider, including local models |
 | OpenCode | `opencode acp` | [OpenCode](https://opencode.ai), configured with any provider |
 
 Pick the agent from the selector in the agent panel. Agents whose command
 isn't found are listed with an install hint. `opensupercad doctor` shows which
 agents are available.
+
+Claude Code and Codex talk ACP through an adapter that `npx` downloads on first
+use. The adapter needs Node.js even when the `claude` or `codex` CLI is
+installed natively, and it uses the same login. OpenSuperCAD looks for `npx`
+on your `PATH`, on the `PATH` your login shell sets up (nvm, fnm, Volta, asdf,
+mise), and in the usual install locations (`~/.volta/bin`, `~/.nvm`, Homebrew,
+`/usr/local/bin`). So it works when the app is started from the desktop menu or
+the Dock, not only from a terminal.
 
 ## Slash commands
 
