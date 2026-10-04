@@ -6,6 +6,7 @@
     "group:allNonMajor",
     "helpers:pinGitHubActionDigests"
   ],
+  "baseBranchPatterns": ["main"],
   "labels": ["dependencies"],
   "prConcurrentLimit": 0,
   "prHourlyLimit": 0,
