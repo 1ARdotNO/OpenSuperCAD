@@ -73,6 +73,12 @@ pub struct AgentPanel {
     options: HashMap<String, Vec<ConfigOption>>,
     /// The running session got the remembered choices.
     options_applied: bool,
+    /// Messages sent while the agent was working, oldest first, each with
+    /// its images. One is sent each time a turn ends (#93).
+    queued: Vec<(String, Vec<PathBuf>)>,
+    /// A turn just ended: send the next queued message once the agent is
+    /// ready again.
+    send_queued: bool,
     /// The highlighted entry in the slash-command list.
     slash_ix: usize,
     /// Esc closed the list for the `/word` being typed.
@@ -174,6 +180,8 @@ impl AgentPanel {
             accepts_images: None,
             options: HashMap::new(),
             options_applied: false,
+            queued: Vec::new(),
+            send_queued: false,
             slash_ix: 0,
             slash_closed: false,
             _events: None,
@@ -303,6 +311,8 @@ impl AgentPanel {
 
     pub fn new_thread(&mut self, cx: &mut Context<Self>) {
         self.stop_session();
+        // Queued messages were written for the thread being left.
+        self.queued.clear();
         self.thread = None;
         self.permissions.clear();
         self.tool_index.clear();
@@ -316,6 +326,7 @@ impl AgentPanel {
         };
         if let Ok(thread) = self.store.load_thread(root, id) {
             self.stop_session();
+            self.queued.clear();
             let agent = thread.agent.clone();
             self.thread = Some(thread);
             self.select_agent(&agent, window, cx);
@@ -341,10 +352,16 @@ impl AgentPanel {
     }
 
     fn send(&mut self, text: String, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((root, name, auto_checkpoint)) = self.project.clone() else {
+        if self.project.is_none() {
             return;
-        };
+        }
+        // The agent is working: queue the message instead of dropping it.
         if self.is_busy() || self.node_download {
+            if !text.is_empty() || !self.attachments.is_empty() {
+                let images = std::mem::take(&mut self.attachments);
+                self.queued.push((text, images));
+                cx.notify();
+            }
             return;
         }
         if self.needs_node() {
@@ -362,6 +379,15 @@ impl AgentPanel {
             return;
         }
         let images = std::mem::take(&mut self.attachments);
+        self.dispatch(text, images, cx);
+    }
+
+    /// Put `text` and `images` in the thread and send them to the agent,
+    /// starting it if needed.
+    fn dispatch(&mut self, text: String, images: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let Some((root, name, auto_checkpoint)) = self.project.clone() else {
+            return;
+        };
         let session_id = early_session(self.session.is_some(), &self.session_id);
         let thread = self.thread.get_or_insert_with(|| {
             let mut t = Thread::new(self.agent_id.clone());
@@ -541,6 +567,52 @@ impl AgentPanel {
             self.attach_bytes(bytes, "the pasted image".into(), window, cx);
         }
         true
+    }
+
+    /// Messages waiting for the agent to finish its turn.
+    fn render_queue(
+        &self,
+        theme: &gpui_kit::component::Theme,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.queued.is_empty() {
+            return None;
+        }
+        let mut list = v_flex().gap_1().child(
+            div()
+                .text_xs()
+                .text_color(theme.muted_foreground)
+                .child(format!("Queued, sent when {} is done:", self.agent_name())),
+        );
+        for (ix, (text, images)) in self.queued.iter().enumerate() {
+            let label = queued_label(text, images.len());
+            list = list.child(
+                h_flex()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.border)
+                    .text_sm()
+                    .text_color(theme.muted_foreground)
+                    .child(div().flex_1().min_w_0().line_clamp(2).child(label))
+                    .child(
+                        Button::new(("unqueue", ix))
+                            .icon(IconName::Close)
+                            .ghost()
+                            .xsmall()
+                            .tooltip("Don't send")
+                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                if ix < this.queued.len() {
+                                    this.queued.remove(ix);
+                                }
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+        Some(list.into_any_element())
     }
 
     /// The thumbnails of the images attached to the next prompt.
@@ -852,7 +924,13 @@ impl AgentPanel {
                     );
                     self.session = None;
                 }
+                let ready = matches!(status, Status::Ready);
                 self.status = Some(status);
+                // The turn is over and the agent can take the next message.
+                if ready && std::mem::take(&mut self.send_queued) && !self.queued.is_empty() {
+                    let (text, images) = self.queued.remove(0);
+                    self.dispatch(text, images, cx);
+                }
             }
             SessionEvent::SessionId(id) => {
                 if let Some(t) = &mut self.thread {
@@ -879,6 +957,7 @@ impl AgentPanel {
                     msg.checkpoint = Some(cp.id);
                 }
                 self.permissions.clear();
+                self.send_queued = true;
                 self.save_thread();
                 self.reload_threads();
                 cx.emit(AgentPanelEvent::TurnEnded);
@@ -1264,6 +1343,7 @@ impl Render for AgentPanel {
             }))
             .child(permissions)
             .children(self.render_slash_list(&theme, cx))
+            .children(self.render_queue(&theme, cx))
             .children(self.render_attachments(&theme, cx))
             .child(Textarea::new(&self.prompt).w_full())
             .child(
@@ -1327,6 +1407,20 @@ impl Render for AgentPanel {
 /// belonged to another thread (#81).
 fn early_session(running: bool, session_id: &Option<String>) -> Option<String> {
     running.then(|| session_id.clone()).flatten()
+}
+
+/// How a queued message is listed: its text, plus how many images it has.
+fn queued_label(text: &str, images: usize) -> String {
+    let note = match images {
+        0 => return text.to_owned(),
+        1 => "[1 image]".to_owned(),
+        n => format!("[{n} images]"),
+    };
+    if text.is_empty() {
+        note
+    } else {
+        format!("{text} {note}")
+    }
 }
 
 /// Permission modes that let the agent act without asking first, shown in
@@ -1610,7 +1704,7 @@ mod tests {
     use super::{
         SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_attachments, decode_snapshots,
         decode_tool, early_session, encode_attachments, encode_tool, matching_commands,
-        skips_prompts, slash_query, typed_command_hint,
+        queued_label, skips_prompts, slash_query, typed_command_hint,
     };
 
     #[test]
@@ -1700,5 +1794,12 @@ mod tests {
         for mode in ["default", "plan", "acceptEdits"] {
             assert!(!skips_prompts(mode), "{mode}");
         }
+    }
+
+    #[test]
+    fn queued_messages_list_their_images() {
+        assert_eq!(queued_label("make it taller", 0), "make it taller");
+        assert_eq!(queued_label("copy this", 1), "copy this [1 image]");
+        assert_eq!(queued_label("", 3), "[3 images]");
     }
 }

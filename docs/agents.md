@@ -53,6 +53,14 @@ opensupercad node            # which npx the agents use
 opensupercad node install    # download the pinned Node.js (SHA-256 verified)
 ```
 
+## Sending while the agent works
+
+You can keep typing while the agent works. Messages you send meanwhile are
+queued above the prompt and sent one by one as the agent finishes each turn
+(also after **Stop**), with their images. Click × on a queued message to drop
+it. Starting a new thread or opening another one discards the queue, since
+those messages belonged to the thread you left.
+
 ## Mode, model and effort
 
 Agents that offer settings get small dropdowns under the prompt, one per
