@@ -239,10 +239,26 @@ impl AgentPanel {
     /// project's data and show them in the thread.
     pub fn add_snapshots(
         &mut self,
+        run: Option<u64>,
         file: String,
         images: Vec<(String, Vec<u8>)>,
         cx: &mut Context<Self>,
     ) {
+        // An agent in a background thread: add them to that thread (#96).
+        if let Some(id) = run.filter(|id| *id != self.run_id)
+            && let Some(ix) = self.background.iter().position(|r| r.id == id)
+        {
+            let run = self.background.remove(ix);
+            let shown = self.take_run();
+            self.put_run(run);
+            self.add_snapshots(None, file, images, cx);
+            let run = self.take_run();
+            self.put_run(shown);
+            if run.is_active() {
+                self.background.push(run);
+            }
+            return;
+        }
         let (Some((root, ..)), Some(thread)) = (&self.project, &mut self.thread) else {
             return;
         };
@@ -942,7 +958,10 @@ impl AgentPanel {
             return;
         };
         let resume = self.thread.as_ref().and_then(|t| t.session_id.clone());
+        self.next_run += 1;
+        let run = self.next_run;
         let session = Session::start(Options {
+            run,
             spec,
             project_root: root,
             project_name: name,
@@ -954,9 +973,8 @@ impl AgentPanel {
         self.session = Some(session);
         self.session_id = None;
         self.stderr_tail.clear();
-        self.next_run += 1;
-        self.run_id = self.next_run;
-        let id = self.run_id;
+        self.run_id = run;
+        let id = run;
         self._events = Some(cx.spawn(async move |this, cx| {
             while let Ok(ev) = events.recv().await {
                 if this

@@ -1895,7 +1895,7 @@ impl Workspace {
                 self.save_all(window, cx);
                 ControlReply::ok()
             }
-            ControlRequest::Snapshot { file, images } => {
+            ControlRequest::Snapshot { file, images, run } => {
                 use base64::Engine as _;
                 let images = images
                     .into_iter()
@@ -1907,7 +1907,7 @@ impl Workspace {
                     })
                     .collect();
                 self.agent
-                    .update(cx, |a, cx| a.add_snapshots(file, images, cx));
+                    .update(cx, |a, cx| a.add_snapshots(run, file, images, cx));
                 ControlReply::ok()
             }
             ControlRequest::Camera { rotation } => {

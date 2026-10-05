@@ -42,6 +42,7 @@ fn main() -> anyhow::Result<()> {
             crash::install("mcp");
             let mut project = std::env::current_dir()?;
             let mut control = None;
+            let mut run = None;
             let mut it = args.iter().skip(1);
             while let Some(a) = it.next() {
                 match a.as_str() {
@@ -52,10 +53,13 @@ fn main() -> anyhow::Result<()> {
                             .ok_or_else(|| anyhow::anyhow!("--project needs a value"))?
                     }
                     "--control" => control = it.next().map(PathBuf::from),
+                    "--run" => run = it.next().and_then(|r| r.parse().ok()),
                     other => anyhow::bail!("unknown argument `{other}`\n\n{USAGE}"),
                 }
             }
-            osc_mcp::Server::with_control(project, control)?.serve_stdio()
+            osc_mcp::Server::with_control(project, control)?
+                .with_run(run)
+                .serve_stdio()
         }
         Some("doctor") => doctor::run(),
         Some("openscad") => openscad::run_cli(&args[1..]),

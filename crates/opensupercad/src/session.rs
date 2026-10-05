@@ -59,6 +59,9 @@ pub struct Options {
     pub auto_checkpoint: bool,
     /// Control socket of this window, handed to the MCP server.
     pub control: Option<PathBuf>,
+    /// The agent panel's run id, handed to the MCP server so its snapshots
+    /// reach this run's thread.
+    pub run: u64,
 }
 
 impl Session {
@@ -137,12 +140,15 @@ impl Drop for Session {
 fn mcp_command(
     root: &std::path::Path,
     control: Option<&std::path::Path>,
+    run: u64,
 ) -> (PathBuf, Vec<String>) {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("opensupercad"));
     let mut args = vec!["--project".to_owned(), root.display().to_string()];
     if let Some(socket) = control {
         args.push("--control".to_owned());
         args.push(socket.display().to_string());
+        args.push("--run".to_owned());
+        args.push(run.to_string());
     }
     let is_app = exe.file_stem().is_some_and(|s| {
         s.to_string_lossy().starts_with("opensupercad") && !s.to_string_lossy().ends_with("-mcp")
@@ -199,7 +205,7 @@ fn worker(
     send(SessionEvent::AcceptsImages(
         init.agent_capabilities.prompt_capabilities.image,
     ));
-    let (cmd, args) = mcp_command(&opts.project_root, opts.control.as_deref());
+    let (cmd, args) = mcp_command(&opts.project_root, opts.control.as_deref(), opts.run);
     let mcp = vec![osc_agent::opensupercad_mcp_server(&cmd, args)];
 
     let mut resumed = false;
@@ -315,6 +321,7 @@ mod tests {
         let (cmd, args) = mcp_command(
             std::path::Path::new("/p"),
             Some(std::path::Path::new("/s.sock")),
+            7,
         );
         // Under `cargo test` the executable is the test harness, so we fall
         // back to the sibling standalone server.
@@ -324,6 +331,7 @@ mod tests {
             args.windows(2)
                 .any(|w| w[0] == "--control" && w[1] == "/s.sock")
         );
+        assert!(args.windows(2).any(|w| w[0] == "--run" && w[1] == "7"));
     }
 
     #[test]
