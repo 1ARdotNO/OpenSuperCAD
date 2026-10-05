@@ -39,6 +39,39 @@ struct PendingPermission {
     choices: Vec<PermissionChoice>,
 }
 
+/// A thread's agent at work: its session and everything tied to it. The
+/// shown thread's run lives in the panel's fields; the others keep going in
+/// `background` until they're idle (#94).
+#[derive(Default)]
+struct Run {
+    id: u64,
+    thread: Option<Thread>,
+    agent_id: String,
+    session: Option<Session>,
+    events: Option<Task<()>>,
+    status: Option<Status>,
+    tool_index: HashMap<String, usize>,
+    permissions: Vec<PendingPermission>,
+    stderr_tail: Vec<String>,
+    session_id: Option<String>,
+    accepts_images: Option<bool>,
+    options_applied: bool,
+    queued: Vec<(String, Vec<PathBuf>)>,
+    send_queued: bool,
+}
+
+impl Run {
+    /// Worth keeping when its thread isn't shown: working, waiting for the
+    /// user's OK, or with messages still to send. An idle agent is stopped;
+    /// reopening the thread resumes its session.
+    fn is_active(&self) -> bool {
+        self.session.is_some()
+            && (matches!(self.status, Some(Status::Busy | Status::Starting))
+                || !self.permissions.is_empty()
+                || !self.queued.is_empty())
+    }
+}
+
 pub struct AgentPanel {
     focus: FocusHandle,
     store: Store,
@@ -84,6 +117,11 @@ pub struct AgentPanel {
     /// Esc closed the list for the `/word` being typed.
     slash_closed: bool,
     _events: Option<Task<()>>,
+    /// Id of the shown thread's run (0: none started).
+    run_id: u64,
+    next_run: u64,
+    /// Runs of threads that aren't shown, still working.
+    background: Vec<Run>,
     _subs: Vec<Subscription>,
 }
 
@@ -185,6 +223,9 @@ impl AgentPanel {
             slash_ix: 0,
             slash_closed: false,
             _events: None,
+            run_id: 0,
+            next_run: 0,
+            background: Vec::new(),
             _subs: subs,
         }
     }
@@ -251,6 +292,8 @@ impl AgentPanel {
         cx: &mut Context<Self>,
     ) {
         self.stop_session();
+        // Background runs belong to the project being left.
+        self.background.clear();
         self.project = project;
         self.thread = None;
         self.permissions.clear();
@@ -298,6 +341,91 @@ impl AgentPanel {
         }
     }
 
+    /// Move the shown thread's run out of the panel, leaving it empty.
+    fn take_run(&mut self) -> Run {
+        Run {
+            id: std::mem::take(&mut self.run_id),
+            thread: self.thread.take(),
+            agent_id: self.agent_id.clone(),
+            session: self.session.take(),
+            events: self._events.take(),
+            status: self.status.take(),
+            tool_index: std::mem::take(&mut self.tool_index),
+            permissions: std::mem::take(&mut self.permissions),
+            stderr_tail: std::mem::take(&mut self.stderr_tail),
+            session_id: self.session_id.take(),
+            accepts_images: self.accepts_images.take(),
+            options_applied: std::mem::take(&mut self.options_applied),
+            queued: std::mem::take(&mut self.queued),
+            send_queued: std::mem::take(&mut self.send_queued),
+        }
+    }
+
+    fn put_run(&mut self, run: Run) {
+        self.run_id = run.id;
+        self.thread = run.thread;
+        self.agent_id = run.agent_id;
+        self.session = run.session;
+        self._events = run.events;
+        self.status = run.status;
+        self.tool_index = run.tool_index;
+        self.permissions = run.permissions;
+        self.stderr_tail = run.stderr_tail;
+        self.session_id = run.session_id;
+        self.accepts_images = run.accepts_images;
+        self.options_applied = run.options_applied;
+        self.queued = run.queued;
+        self.send_queued = run.send_queued;
+    }
+
+    /// Leave the shown thread: its agent keeps working in the background
+    /// if it's busy, and is stopped otherwise.
+    fn park(&mut self) {
+        let run = self.take_run();
+        if run.is_active() {
+            self.background.push(run);
+        }
+    }
+
+    /// An event from run `id`: applied to the shown thread, or to the
+    /// background run it belongs to.
+    fn on_run_event(&mut self, id: u64, ev: SessionEvent, cx: &mut Context<Self>) {
+        if id == self.run_id {
+            self.on_session_event(ev, cx);
+            return;
+        }
+        let Some(ix) = self.background.iter().position(|r| r.id == id) else {
+            return;
+        };
+        let run = self.background.remove(ix);
+        let shown = self.take_run();
+        self.put_run(run);
+        self.on_session_event(ev, cx);
+        let run = self.take_run();
+        self.put_run(shown);
+        if run.is_active() {
+            self.background.push(run);
+        }
+        cx.notify();
+    }
+
+    /// The state of a thread's agent, for the thread list.
+    fn thread_activity(&self, id: &str) -> Option<&'static str> {
+        let run = self
+            .background
+            .iter()
+            .find(|r| r.thread.as_ref().is_some_and(|t| t.id == id))?;
+        if !run.permissions.is_empty() {
+            Some("needs your OK")
+        } else if matches!(run.status, Some(Status::Busy | Status::Starting)) {
+            Some("working…")
+        } else if !run.queued.is_empty() {
+            Some("queued")
+        } else {
+            None
+        }
+    }
+
     fn stop_session(&mut self) {
         self.session = None; // dropping kills the agent
         self._events = None;
@@ -310,9 +438,8 @@ impl AgentPanel {
     }
 
     pub fn new_thread(&mut self, cx: &mut Context<Self>) {
-        self.stop_session();
-        // Queued messages were written for the thread being left.
-        self.queued.clear();
+        // The thread being left keeps working in the background.
+        self.park();
         self.thread = None;
         self.permissions.clear();
         self.tool_index.clear();
@@ -321,18 +448,34 @@ impl AgentPanel {
     }
 
     fn open_thread(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((root, ..)) = &self.project else {
+        let Some((root, ..)) = self.project.clone() else {
             return;
         };
-        if let Ok(thread) = self.store.load_thread(root, id) {
-            self.stop_session();
-            self.queued.clear();
+        if self.thread.as_ref().is_some_and(|t| t.id == id) {
+            self.show_threads = false;
+            cx.notify();
+            return;
+        }
+        let running = self
+            .background
+            .iter()
+            .position(|r| r.thread.as_ref().is_some_and(|t| t.id == id));
+        if let Some(ix) = running {
+            // Still working in the background: bring its run back.
+            self.park();
+            let run = self.background.remove(ix);
+            let agent = run.agent_id.clone();
+            self.put_run(run);
+            self.select_agent(&agent, window, cx);
+        } else if let Ok(thread) = self.store.load_thread(&root, id) {
+            self.park();
             let agent = thread.agent.clone();
             self.thread = Some(thread);
             self.select_agent(&agent, window, cx);
             self.reindex();
         }
         self.show_threads = false;
+        self.scroll.scroll_to_bottom();
         cx.notify();
     }
 
@@ -413,6 +556,11 @@ impl AgentPanel {
         if let Some(session) = &self.session {
             // A thread resumed into a fresh agent process gets the skill again.
             session.prompt(text, first_turn, images);
+            // Working from now on, even before the agent says so, so the
+            // run isn't taken for idle in the background.
+            if matches!(self.status, Some(Status::Ready)) {
+                self.status = Some(Status::Busy);
+            }
         }
         self.scroll.scroll_to_bottom();
         cx.notify();
@@ -806,10 +954,13 @@ impl AgentPanel {
         self.session = Some(session);
         self.session_id = None;
         self.stderr_tail.clear();
+        self.next_run += 1;
+        self.run_id = self.next_run;
+        let id = self.run_id;
         self._events = Some(cx.spawn(async move |this, cx| {
             while let Ok(ev) = events.recv().await {
                 if this
-                    .update(cx, |this, cx| this.on_session_event(ev, cx))
+                    .update(cx, |this, cx| this.on_run_event(id, ev, cx))
                     .is_err()
                 {
                     break;
@@ -1255,10 +1406,22 @@ impl Render for AgentPanel {
                         .hover(|s| s.bg(theme.list_hover))
                         .child(div().text_sm().truncate().child(t.title.clone()))
                         .child(
-                            div()
+                            h_flex()
+                                .gap_2()
                                 .text_xs()
                                 .text_color(theme.muted_foreground)
-                                .child(t.agent.clone()),
+                                .child(t.agent.clone())
+                                .when_some(self.thread_activity(&t.id), |el, activity| {
+                                    el.child(
+                                        div()
+                                            .text_color(if activity == "needs your OK" {
+                                                theme.warning
+                                            } else {
+                                                theme.accent_foreground
+                                            })
+                                            .child(activity),
+                                    )
+                                }),
                         )
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
                             this.open_thread(&id, window, cx)
@@ -1702,7 +1865,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::{
-        SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_attachments, decode_snapshots,
+        Run, SNAPSHOT_MARKER, SlashCommand, ToolStatus, decode_attachments, decode_snapshots,
         decode_tool, early_session, encode_attachments, encode_tool, matching_commands,
         queued_label, skips_prompts, slash_query, typed_command_hint,
     };
@@ -1801,5 +1964,17 @@ mod tests {
         assert_eq!(queued_label("make it taller", 0), "make it taller");
         assert_eq!(queued_label("copy this", 1), "copy this [1 image]");
         assert_eq!(queued_label("", 3), "[3 images]");
+    }
+
+    #[test]
+    fn runs_without_an_agent_are_not_kept() {
+        let mut run = Run {
+            queued: vec![("later".into(), Vec::new())],
+            ..Run::default()
+        };
+        // Nothing to keep alive: the session is gone.
+        assert!(!run.is_active());
+        run.queued.clear();
+        assert!(!run.is_active());
     }
 }
