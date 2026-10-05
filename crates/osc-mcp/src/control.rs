@@ -27,6 +27,10 @@ pub enum ControlRequest {
     Snapshot {
         file: String,
         images: Vec<SnapshotImage>,
+        /// The app's agent run this server belongs to (`--run`), so the
+        /// snapshots go to that run's thread.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        run: Option<u64>,
     },
     /// Move the app's viewport camera (OpenSCAD `$vpr` rotation).
     Camera { rotation: [f64; 3] },
@@ -284,6 +288,23 @@ mod transport {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn snapshots_name_their_run() {
+        let req = ControlRequest::Snapshot {
+            file: "main.scad".into(),
+            images: Vec::new(),
+            run: Some(3),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert_eq!(serde_json::from_str::<ControlRequest>(&json).unwrap(), req);
+        // Servers that predate runs omit the field.
+        let old = json.replace(r#","run":3"#, "");
+        assert!(matches!(
+            serde_json::from_str::<ControlRequest>(&old).unwrap(),
+            ControlRequest::Snapshot { run: None, .. }
+        ));
+    }
 
     #[test]
     fn roundtrip() {

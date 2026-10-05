@@ -55,6 +55,12 @@ impl Server {
         })
     }
 
+    /// Tag requests to the app with its agent run (`--run`).
+    pub fn with_run(mut self, run: Option<u64>) -> Self {
+        self.tools = self.tools.with_run(run);
+        self
+    }
+
     /// Serve requests from stdin until EOF.
     pub fn serve_stdio(&mut self) -> anyhow::Result<()> {
         let stdin = std::io::stdin();

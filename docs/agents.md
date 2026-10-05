@@ -58,8 +58,17 @@ opensupercad node install    # download the pinned Node.js (SHA-256 verified)
 You can keep typing while the agent works. Messages you send meanwhile are
 queued above the prompt and sent one by one as the agent finishes each turn
 (also after **Stop**), with their images. Click × on a queued message to drop
-it. Starting a new thread or opening another one discards the queue, since
-those messages belonged to the thread you left.
+it.
+
+## Several threads at once
+
+Switching to another thread, or starting a new one, doesn't stop the agent
+in the thread you leave: it keeps working in the background, and its replies,
+tool calls and checkpoints are saved to that thread. The thread list (☰)
+shows which threads are *working…*, have *queued* messages, or are waiting
+for *your OK* on a permission prompt; open the thread to answer it. When a
+background agent finishes and has nothing left to do, it's stopped to save
+resources; reopening the thread resumes the conversation.
 
 ## Mode, model and effort
 

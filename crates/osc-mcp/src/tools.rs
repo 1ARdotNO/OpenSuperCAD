@@ -22,6 +22,8 @@ pub struct Tools {
     engine: Option<Result<Engine, String>>,
     scratch: tempfile::TempDir,
     control: Option<ControlClient>,
+    /// The app's agent run this server serves (`--run`).
+    run: Option<u64>,
 }
 
 struct ToolDef {
@@ -241,12 +243,19 @@ impl Tools {
                 .prefix("opensupercad-mcp")
                 .tempdir()?,
             control: None,
+            run: None,
         })
     }
 
     /// Connect to a running OpenSuperCAD window (see [`crate::control`]).
     pub fn with_control(mut self, socket: Option<PathBuf>) -> Self {
         self.control = socket.map(ControlClient::new);
+        self
+    }
+
+    /// The app's agent run this server serves (see `--run`).
+    pub fn with_run(mut self, run: Option<u64>) -> Self {
+        self.run = run;
         self
     }
 
@@ -568,6 +577,7 @@ impl Tools {
         self.notify_app(&ControlRequest::Snapshot {
             file: self.project.relative(&req.file),
             images,
+            run: self.run,
         });
         content.insert(0, Content::Text(header));
         Ok(content)

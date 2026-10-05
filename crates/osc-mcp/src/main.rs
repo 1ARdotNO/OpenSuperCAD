@@ -10,11 +10,13 @@ use std::path::PathBuf;
 fn main() -> anyhow::Result<()> {
     let mut project = None;
     let mut control = None;
+    let mut run = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--project" | "-p" => project = args.next().map(PathBuf::from),
             "--control" => control = args.next().map(PathBuf::from),
+            "--run" => run = args.next().and_then(|r| r.parse().ok()),
             "--print-skill" => {
                 print!("{}", osc_mcp::SKILL);
                 return Ok(());
@@ -40,5 +42,7 @@ fn main() -> anyhow::Result<()> {
         Some(p) => p,
         None => std::env::current_dir()?,
     };
-    osc_mcp::Server::with_control(project, control)?.serve_stdio()
+    osc_mcp::Server::with_control(project, control)?
+        .with_run(run)
+        .serve_stdio()
 }
