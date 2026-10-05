@@ -26,7 +26,7 @@ tempfile.workspace = true
 async-channel = "2.5.0"
 base64 = "0.23.1"
 dirs = "7.0.0"
-gpui-kit = { version = "0.7.0", features = ["tree-sitter", "tree-sitter-diff"] }
+gpui-kit = { version = "0.7.1", features = ["tree-sitter", "tree-sitter-diff"] }
 # `image::Frame` for GPUI's `RenderImage`, and checking and downscaling prompt
 # attachments. The codecs are the ones GPUI already builds.
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
