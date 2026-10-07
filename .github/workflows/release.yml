@@ -112,7 +112,7 @@ jobs:
         run: |
           cargo install cargo-deb --version "$CARGO_DEB_VERSION" --locked
           cargo deb -p opensupercad --no-build --output dist/
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: linux-${{ matrix.arch }}
           path: dist/*
@@ -131,7 +131,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: linux-x86_64
           path: linux
@@ -145,7 +145,7 @@ jobs:
           chown -R builder /tmp/pkg
           su builder -c "cd /tmp/pkg && makepkg --nodeps --noconfirm"
           mkdir -p dist && cp /tmp/pkg/*.pkg.tar.zst dist/
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: arch-x86_64
           path: dist/*
@@ -207,7 +207,7 @@ jobs:
           cp dist/OpenSuperCAD.app/Contents/MacOS/* LICENSE-MIT LICENSE-APACHE README.md "dist/$name/"
           tar -C dist -czf "dist/$name.tar.gz" "$name"
           rm -rf "dist/$name" dist/OpenSuperCAD.app
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: macos-universal
           path: dist/*
@@ -256,7 +256,7 @@ jobs:
           "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" \
             "/DVersion=$VERSION" "/DSource=$(cygpath -w "$PWD/target/release")" \
             "/O$(cygpath -w "$PWD/dist")" packaging/windows/opensupercad.iss
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: windows-x86_64
           path: dist/*
@@ -271,7 +271,7 @@ jobs:
     env:
       VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: dist
           merge-multiple: true
@@ -325,7 +325,7 @@ jobs:
         if: env.AUR_SSH_PRIVATE_KEY != ''
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         if: env.AUR_SSH_PRIVATE_KEY != ''
         with:
           name: linux-x86_64
