@@ -7,7 +7,7 @@ publish = false
 description = "Agent Client Protocol (ACP) client and agent registry for OpenSuperCAD"
 
 [dependencies]
-acp = { package = "agent-client-protocol-schema", version = "1.10.2", default-features = false }
+acp = { package = "agent-client-protocol-schema", version = "1.11.0", default-features = false }
 async-channel = "2.5.0"
 serde.workspace = true
 serde_json.workspace = true
