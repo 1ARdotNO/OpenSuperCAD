@@ -33,7 +33,7 @@ image = { version = "0.25.10", default-features = false, features = ["png", "jpe
 tree-sitter-openscad-ng = "0.7.1"
 
 [build-dependencies]
-winresource = "0.1.32"
+winresource = "0.1.34"
 
 [lints]
 workspace = true
