@@ -91,7 +91,7 @@ impl Mesh {
             let mut entry = archive
                 .by_index(i)
                 .map_err(|_| MeshError::Malformed("unreadable 3MF entry"))?;
-            if entry.name().ends_with(".model") {
+            if entry.name().is_ok_and(|n| n.ends_with(".model")) {
                 std::io::Read::read_to_string(&mut entry, &mut xml)?;
                 break;
             }
