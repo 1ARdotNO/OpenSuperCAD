@@ -186,6 +186,11 @@ opensupercad-mcp --print-skill > SKILL.md
 | `diff_checkpoint` | Unified diff of what a checkpoint changed, or what changed since it |
 | `checkpoint` / `list_checkpoints` / `restore_checkpoint` | Iteration history (see [usage.md](usage.md#git-and-checkpoints)) |
 
+`render`, `export` and `snapshot` take `timeout_s` (default 600): OpenSCAD is
+stopped after that many seconds and the tool reports a timeout. While
+OpenSCAD runs, the server sends MCP progress notifications with the elapsed
+time every 5 s, if the client asks for them (`progressToken`).
+
 All file access is confined to the project folder.
 
 ### Connection to the app window

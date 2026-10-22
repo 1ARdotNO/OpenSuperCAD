@@ -60,6 +60,7 @@ pub fn render_mesh(
         &Request {
             file: file.to_path_buf(),
             defines: defines.to_vec(),
+            ..Request::default()
         },
         &out,
     ) {

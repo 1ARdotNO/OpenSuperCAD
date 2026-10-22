@@ -15,6 +15,9 @@ mod tools;
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
@@ -39,8 +42,15 @@ pub fn skill_body() -> &'static str {
         .trim_start()
 }
 
+/// Sends a JSON-RPC notification to the client while a request runs.
+pub type Notifier = Arc<dyn Fn(Value) + Send + Sync>;
+
+/// How often a long OpenSCAD run is reported to the client.
+const PROGRESS_EVERY_S: u64 = 5;
+
 pub struct Server {
     tools: Tools,
+    notify: Option<Notifier>,
 }
 
 impl Server {
@@ -52,6 +62,7 @@ impl Server {
     pub fn with_control(project_root: PathBuf, control: Option<PathBuf>) -> anyhow::Result<Self> {
         Ok(Self {
             tools: Tools::new(project_root)?.with_control(control),
+            notify: None,
         })
     }
 
@@ -61,20 +72,39 @@ impl Server {
         self
     }
 
+    /// Where progress notifications go (see [`Notifier`]).
+    pub fn with_notifier(mut self, notify: Option<Notifier>) -> Self {
+        self.notify = notify;
+        self
+    }
+
     /// Serve requests from stdin until EOF.
     pub fn serve_stdio(&mut self) -> anyhow::Result<()> {
+        // Progress comes from OpenSCAD supervisor threads mid-request, so
+        // every message takes the lock and is written whole.
+        let stdout = Arc::new(Mutex::new(std::io::stdout()));
+        let write = {
+            let stdout = stdout.clone();
+            move |msg: &Value| -> std::io::Result<()> {
+                let mut line = serde_json::to_vec(msg)?;
+                line.push(b'\n');
+                let mut out = stdout.lock().unwrap_or_else(|e| e.into_inner());
+                out.write_all(&line)?;
+                out.flush()
+            }
+        };
+        let notify_write = write.clone();
+        self.notify = Some(Arc::new(move |msg| {
+            let _ = notify_write(&msg);
+        }));
         let stdin = std::io::stdin();
-        let mut stdout = std::io::stdout().lock();
         for line in stdin.lock().lines() {
             let line = line?;
             if line.trim().is_empty() {
                 continue;
             }
-            let responses = self.handle_line(&line);
-            for response in responses {
-                serde_json::to_writer(&mut stdout, &response)?;
-                stdout.write_all(b"\n")?;
-                stdout.flush()?;
+            for response in self.handle_line(&line) {
+                write(&response)?;
             }
         }
         Ok(())
@@ -110,7 +140,14 @@ impl Server {
                 if !self.tools.exists(name) {
                     Err((-32602, format!("unknown tool `{name}`")))
                 } else {
-                    Ok(self.tools.call(name, &args))
+                    let token = params.pointer("/_meta/progressToken").cloned();
+                    let progress = token
+                        .zip(self.notify.clone())
+                        .map(|(token, notify)| progress_reporter(token, notify, name));
+                    self.tools.set_progress(progress);
+                    let result = self.tools.call(name, &args);
+                    self.tools.set_progress(None);
+                    Ok(result)
                 }
             }
             "prompts/list" => Ok(json!({
@@ -175,6 +212,33 @@ impl Server {
             "instructions": skill_body(),
         })
     }
+}
+
+/// MCP `notifications/progress` with OpenSCAD's running time. Parallel
+/// snapshot runs share it; progress must strictly increase, hence the CAS.
+fn progress_reporter(token: Value, notify: Notifier, tool: &str) -> osc_engine::ProgressFn {
+    let tool = tool.to_owned();
+    let last = AtomicU64::new(0);
+    Arc::new(move |elapsed: Duration| {
+        let secs = elapsed.as_secs() / PROGRESS_EVERY_S * PROGRESS_EVERY_S;
+        let prev = last.load(Ordering::Relaxed);
+        if secs <= prev
+            || last
+                .compare_exchange(prev, secs, Ordering::Relaxed, Ordering::Relaxed)
+                .is_err()
+        {
+            return;
+        }
+        notify(json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/progress",
+            "params": {
+                "progressToken": token,
+                "progress": secs,
+                "message": format!("{tool}: OpenSCAD has been running for {secs} s"),
+            },
+        }));
+    })
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {
@@ -408,8 +472,10 @@ mod tests {
         let r = call(&mut s, "render", json!({}));
         assert_eq!(r["isError"], false, "{}", text(&r));
         assert!(text(&r).contains("bounding_box"));
-        let r = call(&mut s, "render", json!({"t": 0.5}));
+        let r = call(&mut s, "render", json!({"t": 0.5, "timeout_s": 120}));
         assert_eq!(r["isError"], false, "{}", text(&r));
+        let r = call(&mut s, "render", json!({"timeout_s": 0}));
+        assert!(text(&r).contains("timeout_s"), "{}", text(&r));
 
         let r = call(
             &mut s,
@@ -432,5 +498,26 @@ mod tests {
 
         let r = call(&mut s, "export", json!({"output": "out/model.stl"}));
         assert_eq!(r["isError"], false, "{}", text(&r));
+    }
+
+    #[test]
+    fn progress_is_throttled_and_increasing() {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let notify: Notifier = {
+            let sent = sent.clone();
+            Arc::new(move |msg| sent.lock().unwrap().push(msg))
+        };
+        let report = progress_reporter(json!("tok"), notify, "render");
+        for s in [1, 2, 5, 5, 6, 11, 3, 12] {
+            report(Duration::from_secs(s));
+        }
+        let sent = sent.lock().unwrap();
+        let progress: Vec<_> = sent
+            .iter()
+            .map(|m| m["params"]["progress"].clone())
+            .collect();
+        assert_eq!(progress, [json!(5), json!(10)]);
+        assert_eq!(sent[0]["method"], "notifications/progress");
+        assert_eq!(sent[0]["params"]["progressToken"], "tok");
     }
 }

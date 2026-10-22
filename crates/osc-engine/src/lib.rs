@@ -19,4 +19,7 @@ pub mod raster;
 
 pub use camera::{Camera, View};
 pub use diagnostics::{Diagnostic, Severity, parse_console};
-pub use engine::{Engine, EngineError, ExportFormat, RenderMode, RenderOutput, Request};
+pub use engine::{
+    CancelToken, Engine, EngineError, ExportFormat, Interrupt, ProgressFn, RenderMode,
+    RenderOutput, Request, RunControl,
+};
