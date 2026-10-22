@@ -55,6 +55,11 @@ user ──prompt──► agent panel ──ACP session/prompt──► agent p
   exported once as STL and rasterised in-process, which makes orbit and zoom
   instant. Snapshots for the agent use OpenSCAD's own renderer (`--camera`,
   `--viewall`, `--autocenter`), so the agent sees what OpenSCAD users see.
+  In preview mode, OpenSCAD's view-all also fits helper operands that
+  `intersection()` or nested `difference()`s cut away, so auto-framed
+  snapshots use an explicit camera fitted to the final geometry's bounding
+  box, estimated from the exported `.csg` tree (`osc_engine::bbox`). Designs
+  with nodes it cannot bound (`import`, `text`, …) keep OpenSCAD's framing.
 - **Checkpoints** (`osc-git`) are built with `GIT_INDEX_FILE` pointing at a
   temporary index: `git add -A` → `write-tree` → `commit-tree` →
   `update-ref refs/heads/osc/checkpoints/<branch>`. Restore uses

@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use crate::BoundingBox;
+
+/// OpenSCAD's default perspective field of view.
+const FOV_DEGREES: f64 = 22.5;
+
 /// The named view presets of OpenSCAD's *View* menu.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -126,6 +131,33 @@ impl Camera {
         }
     }
 
+    /// Whether OpenSCAD picks the framing (`--viewall --autocenter`).
+    pub fn is_auto_framed(&self) -> bool {
+        matches!(
+            self,
+            Camera::Preset { .. } | Camera::Gimbal { distance: None, .. }
+        )
+    }
+
+    /// An auto-framed camera as an explicit one fitting `bbox` the way
+    /// OpenSCAD's "view all" does; other cameras are returned unchanged.
+    pub fn framed(&self, bbox: &BoundingBox) -> Camera {
+        let rotation = match self {
+            Camera::Preset { view } => view.rotation(),
+            Camera::Gimbal {
+                rotation,
+                distance: None,
+                ..
+            } => *rotation,
+            _ => return self.clone(),
+        };
+        Camera::Gimbal {
+            rotation,
+            distance: Some(bbox.radius() / (FOV_DEGREES / 2.0).to_radians().sin()),
+            translate: bbox.center(),
+        }
+    }
+
     pub fn label(&self) -> String {
         match self {
             Camera::Preset { view } => view.name().to_owned(),
@@ -158,5 +190,29 @@ mod tests {
         assert_eq!(c.args(), ["--camera=0,0,0,10,0,45,200"]);
         let c: Camera = serde_json::from_str(r#"{"type":"preset","view":"top"}"#).unwrap();
         assert_eq!(c, Camera::preset(View::Top));
+    }
+
+    #[test]
+    fn framing_fits_the_box() {
+        let bbox = BoundingBox {
+            min: [3.0, 4.0, 5.0],
+            max: [13.0, 10.0, 9.0],
+        };
+        let Camera::Gimbal {
+            rotation,
+            distance: Some(d),
+            translate,
+        } = Camera::preset(View::Iso).framed(&bbox)
+        else {
+            panic!("expected an explicit gimbal camera");
+        };
+        assert_eq!((rotation, translate), ([55.0, 0.0, 25.0], [8.0, 7.0, 7.0]));
+        assert!((d - 31.5977).abs() < 1e-3, "{d}");
+        let look = Camera::LookAt {
+            eye: [1.0; 3],
+            center: [0.0; 3],
+        };
+        assert_eq!(look.framed(&bbox), look);
+        assert!(!look.is_auto_framed());
     }
 }

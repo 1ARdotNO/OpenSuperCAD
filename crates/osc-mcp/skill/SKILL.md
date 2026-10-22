@@ -19,7 +19,9 @@ app. Use its tools instead of guessing.
 3. **Look.** Call `snapshot` after every meaningful change. The default views
    are iso, front, top and right. Add `bottom`, `back`, `left` or `diagonal`
    (from below) when undersides, overhangs or hidden faces matter. A `gimbal`
-   camera gives any other angle. For animated designs (`$t`), pass `t`
+   camera gives any other angle. Views and gimbal cameras without `distance`
+   are framed on the final geometry, so helper operands of `difference()` or
+   `intersection()` do not shrink the model. For animated designs (`$t`), pass `t`
    (0..1) to look at a particular moment. **Study the images.** Check proportions,
    intersections, floating parts, wall thickness and orientation against what
    the user asked for.

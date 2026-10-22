@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use osc_syntax::customizer::Value;
 use serde::Serialize;
 
-use crate::{Camera, Diagnostic, Severity, parse_console};
+use crate::{BoundingBox, Camera, Diagnostic, Severity, parse_console};
 
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
@@ -346,13 +346,17 @@ impl Engine {
             .and_then(|s| s.to_str())
             .unwrap_or("model")
             .to_owned();
+        let auto = mode == RenderMode::Preview && cameras.iter().any(Camera::is_auto_framed);
+        let bbox = auto.then(|| self.final_bbox(req, dir)).flatten();
         std::thread::scope(|scope| {
             let handles: Vec<_> = cameras
                 .iter()
                 .enumerate()
                 .map(|(i, cam)| {
                     let out = dir.join(format!("{stem}-{i:02}-{}.png", cam.label()));
-                    scope.spawn(move || (cam.clone(), self.snapshot(req, &out, cam, size, mode)))
+                    let framed = bbox.as_ref().map_or_else(|| cam.clone(), |b| cam.framed(b));
+                    scope
+                        .spawn(move || (cam.clone(), self.snapshot(req, &out, &framed, size, mode)))
                 })
                 .collect();
             handles
@@ -360,6 +364,19 @@ impl Engine {
                 .map(|h| h.join().expect("snapshot thread panicked"))
                 .collect()
         })
+    }
+
+    /// Bounding box of the final geometry, for framing preview snapshots;
+    /// OpenSCAD's preview `--viewall` also fits operands that are cut away.
+    fn final_bbox(&self, req: &Request, dir: &Path) -> Option<BoundingBox> {
+        let csg = tempfile::Builder::new()
+            .prefix("frame-")
+            .suffix(".csg")
+            .tempfile_in(dir)
+            .ok()?;
+        let out = self.export(req, csg.path()).ok()?;
+        out.success.then_some(())?;
+        crate::bbox::from_csg(&std::fs::read_to_string(csg.path()).ok()?)
     }
 
     fn command(&self, wrapper: &[String]) -> Command {
@@ -955,8 +972,65 @@ mod tests {
                 main.display(),
                 out.console
             );
+            assert!(
+                engine
+                    .final_bbox(&Request::new(&main), dir.path())
+                    .is_some(),
+                "{}: no bounding box from the CSG tree",
+                main.display()
+            );
             count += 1;
         }
         assert!(count >= 5, "found {count} examples");
+    }
+
+    /// Share of pixels that differ from the background (the corner pixel).
+    fn coverage(png: &Path) -> f64 {
+        let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(png).unwrap()));
+        let mut reader = decoder.read_info().unwrap();
+        let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut buf).unwrap();
+        let px = info.color_type.samples();
+        let pixels: Vec<&[u8]> = buf[..info.buffer_size()].chunks(px).collect();
+        let bg = pixels[0];
+        pixels.iter().filter(|p| **p != bg).count() as f64 / pixels.len() as f64
+    }
+
+    /// Preview snapshots frame the final geometry, not the helper operands
+    /// OpenSCAD's normalised CSG tree keeps. Skipped without OpenSCAD.
+    #[test]
+    fn preview_frames_the_final_geometry() {
+        let Ok(engine) = Engine::discover() else {
+            eprintln!("openscad not installed; skipping");
+            return;
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("part.scad");
+        let iso = Camera::preset(crate::View::Iso);
+        for source in [
+            "intersection() {\n  cube([20, 10, 5]);\n  translate([-100, -100, -100]) cube(200);\n}\n",
+            "difference() {\n  cube([20, 10, 5]);\n  difference() {\n    translate([-1, -1, 3]) cube(30);\n    translate([-100, -100, -100]) cube(200);\n  }\n}\n",
+        ] {
+            std::fs::write(&file, source).unwrap();
+            let req = Request::new(&file);
+            let bbox = engine.final_bbox(&req, dir.path()).expect("bbox");
+            assert_eq!((bbox.min, bbox.max), ([0.0; 3], [20.0, 10.0, 5.0]));
+
+            let unframed = dir.path().join("unframed.png");
+            let out = engine
+                .snapshot(&req, &unframed, &iso, (320, 240), RenderMode::Preview)
+                .unwrap();
+            assert!(out.success, "{}", out.console);
+            let cameras = [iso.clone()];
+            let results =
+                engine.snapshots(&req, dir.path(), &cameras, (320, 240), RenderMode::Preview);
+            let (camera, out) = results.into_iter().next().unwrap();
+            let out = out.unwrap();
+            assert!(out.success, "{}", out.console);
+            assert_eq!(camera.label(), "iso");
+            let (before, after) = (coverage(&unframed), coverage(&out.output.unwrap()));
+            eprintln!("model covers {before:.4} of the image unframed, {after:.4} framed");
+            assert!(after > 0.2 && after >= before * 0.95, "{before} -> {after}");
+        }
     }
 }

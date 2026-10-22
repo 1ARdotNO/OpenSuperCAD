@@ -10,6 +10,7 @@
 //! * an STL [`mesh`] loader and a small software [`raster`]iser, so the UI can
 //!   orbit a rendered model interactively without re-invoking OpenSCAD.
 
+pub mod bbox;
 mod camera;
 mod diagnostics;
 mod engine;
@@ -17,6 +18,7 @@ pub mod managed;
 pub mod mesh;
 pub mod raster;
 
+pub use bbox::BoundingBox;
 pub use camera::{Camera, View};
 pub use diagnostics::{Diagnostic, Severity, parse_console};
 pub use engine::{
