@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 
 use osc_engine::mesh::Mesh;
 use osc_engine::raster::{self, RasterOptions};
-use osc_engine::{Camera, Diagnostic, Engine, RenderMode, Request};
+use osc_engine::{
+    Camera, CancelToken, Diagnostic, Engine, Interrupt, RenderMode, Request, RunControl,
+};
 
 #[derive(Clone, Debug)]
 pub struct JobResult {
@@ -22,6 +24,8 @@ pub struct JobResult {
     pub edges: Option<Vec<[osc_engine::mesh::Vec3; 2]>>,
     /// PNG bytes of an OpenSCAD preview image.
     pub image: Option<Vec<u8>>,
+    /// A newer request superseded this job and its OpenSCAD was killed.
+    pub cancelled: bool,
 }
 
 impl JobResult {
@@ -38,7 +42,15 @@ impl JobResult {
             mesh: None,
             edges: None,
             image: None,
+            cancelled: false,
         }
+    }
+}
+
+fn control(cancel: &CancelToken) -> RunControl {
+    RunControl {
+        cancel: Some(cancel.clone()),
+        ..RunControl::default()
     }
 }
 
@@ -48,6 +60,7 @@ pub fn render_mesh(
     file: &Path,
     defines: &[(String, osc_syntax::customizer::Value)],
     scratch: &Path,
+    cancel: &CancelToken,
 ) -> JobResult {
     // Newer OpenSCAD keeps color() in 3MF; older releases get plain STL.
     let ext = if engine.exports_colors() {
@@ -60,7 +73,7 @@ pub fn render_mesh(
         &Request {
             file: file.to_path_buf(),
             defines: defines.to_vec(),
-            ..Request::default()
+            control: control(cancel),
         },
         &out,
     ) {
@@ -85,6 +98,7 @@ pub fn render_mesh(
         mesh,
         edges,
         image: None,
+        cancelled: result.interrupted == Some(Interrupt::Cancelled),
     }
 }
 
@@ -95,10 +109,11 @@ pub fn preview_image(
     camera: &Camera,
     size: (u32, u32),
     scratch: &Path,
+    cancel: &CancelToken,
 ) -> JobResult {
     let out = scratch.join(format!("preview-{}.png", unique()));
-    let result = match engine.snapshot(&Request::new(file), &out, camera, size, RenderMode::Preview)
-    {
+    let req = Request::new(file).with_control(control(cancel));
+    let result = match engine.snapshot(&req, &out, camera, size, RenderMode::Preview) {
         Ok(r) => r,
         Err(e) => return JobResult::failed(e.to_string()),
     };
@@ -111,6 +126,7 @@ pub fn preview_image(
         mesh: None,
         edges: None,
         image,
+        cancelled: result.interrupted == Some(Interrupt::Cancelled),
     }
 }
 
@@ -148,7 +164,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("m.scad");
         std::fs::write(&file, "cube([10, 20, 5]);").unwrap();
-        let r = render_mesh(&engine, &file, &[], dir.path());
+        let cancel = CancelToken::new();
+        let r = render_mesh(&engine, &file, &[], dir.path(), &cancel);
         assert!(r.success);
         let mesh = r.mesh.unwrap();
         assert_eq!(mesh.bounds().1, [10.0, 20.0, 5.0]);
@@ -160,8 +177,14 @@ mod tests {
         assert_ne!(centre, image.pixel(0, 0));
 
         std::fs::write(&file, "cube(;").unwrap();
-        let r = render_mesh(&engine, &file, &[], dir.path());
+        let r = render_mesh(&engine, &file, &[], dir.path(), &cancel);
         assert!(!r.success);
         assert!(r.mesh.is_none());
+
+        // A cancelled job is marked so the UI can drop it quietly.
+        std::fs::write(&file, "cube(1);").unwrap();
+        cancel.cancel();
+        let r = render_mesh(&engine, &file, &[], dir.path(), &cancel);
+        assert!(r.cancelled && !r.success);
     }
 }

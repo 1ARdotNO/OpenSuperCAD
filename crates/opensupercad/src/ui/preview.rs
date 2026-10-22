@@ -11,11 +11,15 @@ use gpui_kit::prelude::*;
 use gpui_kit::*;
 use osc_engine::mesh::Mesh;
 use osc_engine::raster::RasterOptions;
-use osc_engine::{Camera, Engine, View};
+use osc_engine::{Camera, CancelToken, Engine, View};
 
 use crate::pipeline::{self, JobResult};
 
 const FRAME: (u32, u32) = (1200, 900);
+
+/// Render requests closer together than this start one OpenSCAD run (F6
+/// saves and renders; agents and editors write several files at once).
+const DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
 
 pub enum PreviewEvent {
     /// A render or preview job finished (for the console/status bar).
@@ -55,6 +59,9 @@ pub struct Preview {
     /// theme change.
     raster_bg: Option<[u8; 4]>,
     render_gen: u64,
+    /// Stops the OpenSCAD run of the newest render once it is superseded.
+    render_cancel: CancelToken,
+    preview_cancel: CancelToken,
     pub last_message: Option<SharedString>,
     /// File of the last render (animation frames are rendered from it).
     last_file: Option<PathBuf>,
@@ -73,6 +80,7 @@ struct Animation {
     playing: bool,
     frames: Vec<Option<Frame>>,
     generation: u64,
+    cancel: CancelToken,
 }
 
 impl Animation {
@@ -118,6 +126,8 @@ impl Preview {
             shown_raster: 0,
             raster_bg: None,
             render_gen: 0,
+            render_cancel: CancelToken::new(),
+            preview_cancel: CancelToken::new(),
             last_message: None,
             last_file: None,
             anim: None,
@@ -130,13 +140,19 @@ impl Preview {
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
+        self.render_cancel.cancel();
+        self.preview_cancel.cancel();
+        if let Some(anim) = &self.anim {
+            anim.cancel.cancel();
+        }
         self.mesh = None;
         self.set_frame(None, cx);
         self.openscad_image = None;
         cx.notify();
     }
 
-    /// Full render (F6 / on save): export a mesh and show it.
+    /// Full render (F6 / on save): export a mesh and show it. A burst of
+    /// requests starts one run, and a newer request kills the running one.
     pub fn render(&mut self, file: &Path, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             self.last_message =
@@ -152,17 +168,29 @@ impl Preview {
         }
         self.render_gen += 1;
         let generation = self.render_gen;
+        let cancel = self.supersede_render();
         self.busy += 1;
         cx.notify();
         let file = file.to_path_buf();
         let scratch = self.scratch.clone();
-        let job = cx
-            .background_spawn(async move { pipeline::render_mesh(&engine, &file, &[], &scratch) });
         cx.spawn(async move |this, cx| {
-            let result = job.await;
+            cx.background_executor().timer(DEBOUNCE).await;
+            let result = if cancel.is_cancelled() {
+                None
+            } else {
+                Some(
+                    cx.background_spawn(async move {
+                        pipeline::render_mesh(&engine, &file, &[], &scratch, &cancel)
+                    })
+                    .await,
+                )
+            };
             this.update(cx, |this, cx| {
                 this.busy = this.busy.saturating_sub(1);
-                // A newer render supersedes this one.
+                let Some(result) = result.filter(|r| !r.cancelled) else {
+                    cx.notify();
+                    return;
+                };
                 if generation == this.render_gen {
                     if let Some(mesh) = result.mesh.clone() {
                         this.mesh = Some(Arc::new(mesh));
@@ -180,11 +208,21 @@ impl Preview {
         .detach();
     }
 
+    /// Cancel the running render, returning the token for the next one.
+    fn supersede_render(&mut self) -> CancelToken {
+        self.render_cancel.cancel();
+        self.render_cancel = CancelToken::new();
+        self.render_cancel.clone()
+    }
+
     /// OpenSCAD's own preview (F5) from the current camera.
     pub fn openscad_preview(&mut self, file: &Path, cx: &mut Context<Self>) {
         let Some(engine) = self.engine.clone() else {
             return;
         };
+        self.preview_cancel.cancel();
+        self.preview_cancel = CancelToken::new();
+        let cancel = self.preview_cancel.clone();
         self.busy += 1;
         cx.notify();
         let camera = Camera::Gimbal {
@@ -195,12 +233,16 @@ impl Preview {
         let file = file.to_path_buf();
         let scratch = self.scratch.clone();
         let job = cx.background_spawn(async move {
-            pipeline::preview_image(&engine, &file, &camera, FRAME, &scratch)
+            pipeline::preview_image(&engine, &file, &camera, FRAME, &scratch, &cancel)
         });
         cx.spawn(async move |this, cx| {
             let result = job.await;
             this.update(cx, |this, cx| {
                 this.busy = this.busy.saturating_sub(1);
+                if result.cancelled {
+                    cx.notify();
+                    return;
+                }
                 if let Some(png) = result.image.clone() {
                     this.openscad_image = Some(Arc::new(Image::from_bytes(ImageFormat::Png, png)));
                 }
@@ -220,7 +262,8 @@ impl Preview {
     }
 
     pub fn toggle_animation(&mut self, cx: &mut Context<Self>) {
-        if self.anim.take().is_some() {
+        if let Some(anim) = self.anim.take() {
+            anim.cancel.cancel();
             if let Some(file) = self.last_file.clone() {
                 self.render(&file, cx);
             }
@@ -232,6 +275,7 @@ impl Preview {
                 playing: false,
                 frames: Vec::new(),
                 generation: 0,
+                cancel: CancelToken::new(),
             });
             self.render_frames(cx);
         }
@@ -249,7 +293,10 @@ impl Preview {
         };
         anim.generation += 1;
         anim.frames = vec![None; anim.steps];
-        let (generation, steps) = (anim.generation, anim.steps);
+        anim.cancel.cancel();
+        anim.cancel = CancelToken::new();
+        let (generation, steps, cancel) = (anim.generation, anim.steps, anim.cancel.clone());
+        self.render_cancel.cancel();
         let scratch = self.scratch.clone();
         self.busy += 1;
         cx.notify();
@@ -257,13 +304,17 @@ impl Preview {
             let mut failed = None;
             for i in 0..steps {
                 let (engine, file, scratch) = (engine.clone(), file.clone(), scratch.clone());
+                let cancel = cancel.clone();
                 let t = i as f64 / steps as f64;
                 let result = cx
                     .background_spawn(async move {
                         let defines = [("$t".to_owned(), osc_syntax::customizer::Value::Number(t))];
-                        pipeline::render_mesh(&engine, &file, &defines, &scratch)
+                        pipeline::render_mesh(&engine, &file, &defines, &scratch, &cancel)
                     })
                     .await;
+                if result.cancelled {
+                    break;
+                }
                 let keep_going = this
                     .update(cx, |this, cx| {
                         let Some(anim) = this.anim.as_mut().filter(|a| a.generation == generation)
