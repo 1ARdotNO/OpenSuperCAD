@@ -306,7 +306,7 @@ pub(crate) fn unpack_zip_into(file: &Path, root: &Path) -> Result<()> {
         let Some(rel) = entry.enclosed_name() else {
             return Err(UpdateError::Unpack(format!(
                 "unsafe path in the archive: {}",
-                entry.name()
+                entry.name().unwrap_or_default()
             )));
         };
         let rel: PathBuf = rel.components().skip(1).collect();
