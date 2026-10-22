@@ -10,9 +10,9 @@ description = "Self-update for OpenSuperCAD from GitHub Releases, with SHA-256 v
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-sha2 = "0.11.0"
+sha2 = "0.11.1"
 osc-engine.workspace = true
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile.workspace = true
