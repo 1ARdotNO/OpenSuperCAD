@@ -1,7 +1,10 @@
 use std::ffi::OsString;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::Instant;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use osc_syntax::customizer::Value;
 use serde::Serialize;
@@ -107,13 +110,15 @@ pub enum RenderMode {
 pub struct Request {
     pub file: PathBuf,
     pub defines: Vec<(String, Value)>,
+    /// Cancellation, time limit and progress for the OpenSCAD process.
+    pub control: RunControl,
 }
 
 impl Request {
     pub fn new(file: impl Into<PathBuf>) -> Self {
         Self {
             file: file.into(),
-            defines: Vec::new(),
+            ..Self::default()
         }
     }
 
@@ -121,6 +126,59 @@ impl Request {
         self.defines.push((name.into(), value));
         self
     }
+
+    pub fn with_control(mut self, control: RunControl) -> Self {
+        self.control = control;
+        self
+    }
+}
+
+/// Stops a running OpenSCAD from another thread; clones share the flag.
+#[derive(Clone, Debug, Default)]
+pub struct CancelToken(Arc<AtomicBool>);
+
+impl CancelToken {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
+/// Called about once a second with the time OpenSCAD has been running.
+pub type ProgressFn = Arc<dyn Fn(Duration) + Send + Sync>;
+
+/// How an OpenSCAD run may be interrupted or observed.
+#[derive(Clone, Default)]
+pub struct RunControl {
+    pub cancel: Option<CancelToken>,
+    /// Kill OpenSCAD once it has run this long.
+    pub timeout: Option<Duration>,
+    pub progress: Option<ProgressFn>,
+}
+
+impl std::fmt::Debug for RunControl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunControl")
+            .field("cancel", &self.cancel)
+            .field("timeout", &self.timeout)
+            .field("progress", &self.progress.is_some())
+            .finish()
+    }
+}
+
+/// Why a run was stopped before OpenSCAD finished.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Interrupt {
+    Cancelled,
+    TimedOut,
 }
 
 /// The result of one `openscad` invocation.
@@ -131,6 +189,9 @@ pub struct RenderOutput {
     pub console: String,
     pub duration_ms: u128,
     pub output: Option<PathBuf>,
+    /// Set when OpenSCAD was killed (cancelled or over its time limit).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interrupted: Option<Interrupt>,
 }
 
 impl RenderOutput {
@@ -365,6 +426,7 @@ impl Engine {
             effective = Request {
                 file: wrapper_file.path().to_path_buf(),
                 defines: plain,
+                control: req.control.clone(),
             };
             &effective
         };
@@ -373,17 +435,48 @@ impl Engine {
         if let Some(dir) = req.file.parent().filter(|d| !d.as_os_str().is_empty()) {
             cmd.current_dir(dir);
         }
-        let output = cmd.output().map_err(|source| EngineError::Spawn {
+        cmd.stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // xvfb-run starts OpenSCAD and an X server as children; a process
+        // group lets a timeout kill all of them, not just the wrapper.
+        #[cfg(unix)]
+        if !wrapper.is_empty() {
+            std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+        }
+        let mut child = cmd.spawn().map_err(|source| EngineError::Spawn {
             binary: self.binary.clone(),
             source,
         })?;
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        let stdout = drain(child.stdout.take());
+        let stderr = drain(child.stderr.take());
+        let (status, interrupted) = supervise(&mut child, &req.control, start, !wrapper.is_empty())
+            .map_err(|source| EngineError::Spawn {
+                binary: self.binary.clone(),
+                source,
+            })?;
+        let grace = interrupted.map(|_| Duration::from_secs(2));
+        let stdout = stdout.finish(grace);
+        let stderr = String::from_utf8_lossy(&stderr.finish(grace)).into_owned();
         let mut console = stderr.clone();
-        console.push_str(&String::from_utf8_lossy(&output.stdout));
+        console.push_str(&String::from_utf8_lossy(&stdout));
         let mut diagnostics = parse_console(&console);
         let has_errors = diagnostics.iter().any(|d| d.severity == Severity::Error);
-        let success = output.status.success() && !has_errors && out.exists();
-        if !success && !has_errors {
+        let success = interrupted.is_none() && status.success() && !has_errors && out.exists();
+        if let Some(reason) = interrupted {
+            diagnostics.push(Diagnostic {
+                severity: Severity::Error,
+                message: match reason {
+                    Interrupt::Cancelled => "OpenSCAD was cancelled".to_owned(),
+                    Interrupt::TimedOut => format!(
+                        "OpenSCAD was stopped after the {} s time limit",
+                        req.control.timeout.unwrap_or_default().as_secs()
+                    ),
+                },
+                file: None,
+                line: None,
+            });
+        } else if !success && !has_errors {
             // Never fail silently: say what happened even without output.
             // Some failures (e.g. a 3D object exported as SVG) are printed
             // without an ERROR: prefix, as the last top-level line.
@@ -395,7 +488,7 @@ impl Engine {
                 severity: Severity::Error,
                 message: match last_message(&stderr) {
                     Some(reason) => format!("OpenSCAD did not produce {name}: {reason}"),
-                    None => format!("OpenSCAD did not produce {name} ({})", output.status),
+                    None => format!("OpenSCAD did not produce {name} ({status})"),
                 },
                 file: None,
                 line: None,
@@ -407,8 +500,103 @@ impl Engine {
             console,
             duration_ms: start.elapsed().as_millis(),
             output: success.then(|| out.to_path_buf()),
+            interrupted,
         })
     }
+}
+
+/// A child's pipe read to the end on its own thread, so a chatty OpenSCAD
+/// can't fill the pipe and block while it is being supervised.
+struct Drain {
+    buf: Arc<std::sync::Mutex<Vec<u8>>>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+fn drain(pipe: Option<impl Read + Send + 'static>) -> Drain {
+    let buf = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let sink = buf.clone();
+    let thread = std::thread::spawn(move || {
+        let Some(mut pipe) = pipe else { return };
+        let mut chunk = [0u8; 8192];
+        while let Ok(n @ 1..) = pipe.read(&mut chunk) {
+            if let Ok(mut buf) = sink.lock() {
+                buf.extend_from_slice(&chunk[..n]);
+            }
+        }
+    });
+    Drain { buf, thread }
+}
+
+impl Drain {
+    /// Everything read once the pipe closes. After a kill, a grandchild may
+    /// still hold the pipe open, so give up waiting after `grace`.
+    fn finish(self, grace: Option<Duration>) -> Vec<u8> {
+        if let Some(grace) = grace {
+            let until = Instant::now() + grace;
+            while !self.thread.is_finished() && Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        if grace.is_none() || self.thread.is_finished() {
+            let _ = self.thread.join();
+        }
+        self.buf.lock().map(|b| b.clone()).unwrap_or_default()
+    }
+}
+
+/// Wait for OpenSCAD, killing it when cancelled or over its time limit.
+fn supervise(
+    child: &mut Child,
+    control: &RunControl,
+    start: Instant,
+    group: bool,
+) -> std::io::Result<(ExitStatus, Option<Interrupt>)> {
+    // Poll fast at first so quick syntax checks don't wait on the poll.
+    let mut poll = Duration::from_millis(2);
+    let mut next_tick = Duration::from_secs(1);
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok((status, None));
+        }
+        let elapsed = start.elapsed();
+        let reason = if control
+            .cancel
+            .as_ref()
+            .is_some_and(CancelToken::is_cancelled)
+        {
+            Some(Interrupt::Cancelled)
+        } else if control.timeout.is_some_and(|t| elapsed >= t) {
+            Some(Interrupt::TimedOut)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            kill(child, group);
+            return Ok((child.wait()?, Some(reason)));
+        }
+        if elapsed >= next_tick {
+            if let Some(progress) = &control.progress {
+                progress(elapsed);
+            }
+            next_tick = elapsed + Duration::from_secs(1);
+        }
+        std::thread::sleep(poll);
+        poll = (poll * 2).min(Duration::from_millis(100));
+    }
+}
+
+fn kill(child: &mut Child, group: bool) {
+    #[cfg(unix)]
+    if group {
+        let _ = Command::new("kill")
+            .args(["-KILL", "--", &format!("-{}", child.id())])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(unix))]
+    let _ = group;
+    let _ = child.kill();
 }
 
 /// `OpenSCAD version 2021.01` → 2021.
@@ -571,6 +759,70 @@ mod tests {
                 "/p/main.scad"
             ]
         );
+    }
+
+    /// A stand-in for OpenSCAD that runs `script` (unix only).
+    #[cfg(unix)]
+    fn fake_openscad(dir: &Path, script: &str) -> Engine {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = dir.join("openscad");
+        std::fs::write(&bin, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        Engine::new(bin)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn time_limit_kills_openscad() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = fake_openscad(dir.path(), "echo 'Rendering...' >&2; sleep 30");
+        let req = Request::new(dir.path().join("m.scad")).with_control(RunControl {
+            timeout: Some(Duration::from_secs(1)),
+            ..RunControl::default()
+        });
+        let start = Instant::now();
+        let out = engine.export(&req, &dir.path().join("m.stl")).unwrap();
+        assert!(start.elapsed() < Duration::from_secs(10));
+        assert!(!out.success);
+        assert_eq!(out.interrupted, Some(Interrupt::TimedOut));
+        assert!(out.console.contains("Rendering..."), "{}", out.console);
+        assert!(out.errors().any(|d| d.message.contains("time limit")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancel_and_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = fake_openscad(dir.path(), "sleep 30");
+        let cancel = CancelToken::new();
+        let ticks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let req = Request::new(dir.path().join("m.scad")).with_control(RunControl {
+            cancel: Some(cancel.clone()),
+            progress: Some({
+                let ticks = ticks.clone();
+                Arc::new(move |_| {
+                    ticks.fetch_add(1, Ordering::Relaxed);
+                })
+            }),
+            ..RunControl::default()
+        });
+        let stopper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1500));
+            cancel.cancel();
+        });
+        let out = engine.export(&req, &dir.path().join("m.stl")).unwrap();
+        stopper.join().unwrap();
+        assert_eq!(out.interrupted, Some(Interrupt::Cancelled));
+        assert!(ticks.load(Ordering::Relaxed) >= 1);
+
+        // A run that finishes on its own is not interrupted.
+        let engine = fake_openscad(dir.path(), "exit 0");
+        let req = Request::new(dir.path().join("m.scad")).with_control(RunControl {
+            cancel: Some(CancelToken::new()),
+            ..RunControl::default()
+        });
+        let out = engine.export(&req, &dir.path().join("m.stl")).unwrap();
+        assert_eq!(out.interrupted, None);
     }
 
     #[test]

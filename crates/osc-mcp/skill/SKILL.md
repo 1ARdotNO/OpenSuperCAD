@@ -25,7 +25,10 @@ app. Use its tools instead of guessing.
    the user asked for.
 4. **Verify geometry.** `render` performs a full render and reports the
    bounding box and triangle count. Use it to confirm real dimensions, and
-   before export: preview can hide CGAL/manifold errors.
+   before export: preview can hide CGAL/manifold errors. Full renders of
+   complex models can take minutes with older OpenSCAD (CGAL). OpenSCAD is
+   stopped after `timeout_s` (default 600). On a timeout, render one part,
+   lower `$fn`, or retry with a larger `timeout_s`. Don't loop on it.
 5. **Checkpoint.** OpenSuperCAD takes a checkpoint after each of your turns
    automatically. Call `checkpoint` yourself, with a descriptive message,
    before risky refactors. `list_checkpoints` and `restore_checkpoint` undo a

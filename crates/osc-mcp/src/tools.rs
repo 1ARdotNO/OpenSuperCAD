@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use base64::Engine as _;
-use osc_engine::{Camera, Diagnostic, Engine, RenderMode, Request, Severity, View, mesh::Mesh};
+use osc_engine::{
+    Camera, Diagnostic, Engine, Interrupt, ProgressFn, RenderMode, RenderOutput, Request,
+    RunControl, Severity, View, mesh::Mesh,
+};
 use osc_git::Repo;
 use osc_project::Project;
 use osc_syntax::customizer::{self, Value as ParamValue};
@@ -24,7 +27,13 @@ pub struct Tools {
     control: Option<ControlClient>,
     /// The app's agent run this server serves (`--run`).
     run: Option<u64>,
+    /// Reports OpenSCAD's running time for the current call.
+    progress: Option<ProgressFn>,
 }
+
+/// Time limit of an OpenSCAD run unless the call sets `timeout_s`.
+const DEFAULT_TIMEOUT_S: u64 = 600;
+const MAX_TIMEOUT_S: u64 = 3600;
 
 struct ToolDef {
     name: &'static str,
@@ -40,6 +49,10 @@ fn path_prop() -> Value {
 
 fn t_prop() -> Value {
     json!({ "type": "number", "minimum": 0, "maximum": 1, "description": "Animation time: sets OpenSCAD's $t (0..1) to inspect a moment of an animated design." })
+}
+
+fn timeout_prop() -> Value {
+    json!({ "type": "integer", "minimum": 1, "maximum": MAX_TIMEOUT_S, "description": "Stop OpenSCAD after this many seconds and report a timeout (default 600). Full renders of complex models can take minutes." })
 }
 
 fn defines_prop() -> Value {
@@ -147,19 +160,20 @@ const TOOLS: &[ToolDef] = &[
                     "size": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2, "description": "[width, height] in pixels, default [640, 480]." },
                     "mode": { "type": "string", "enum": ["preview", "render"], "description": "preview (fast, F5) or render (full geometry, F6). Default preview." },
                     "defines": defines_prop(),
-                    "t": t_prop()
+                    "t": t_prop(),
+                    "timeout_s": timeout_prop()
                 }
             })
         },
     },
     ToolDef {
         name: "render",
-        description: "Fully render the model (like F6). Reports errors/warnings/echo output, the bounding box in mm and the triangle count. Use to verify real dimensions and that the geometry is valid.",
+        description: "Fully render the model (like F6). Reports errors/warnings/echo output, the bounding box in mm and the triangle count. Use to verify real dimensions and that the geometry is valid. Complex models can take minutes; OpenSCAD is stopped after `timeout_s`.",
         schema: || {
             json!({
                 "type": "object",
                 "properties": { "path": path_prop(), "defines": defines_prop(),
-                    "t": t_prop() }
+                    "t": t_prop(), "timeout_s": timeout_prop() }
             })
         },
     },
@@ -173,7 +187,8 @@ const TOOLS: &[ToolDef] = &[
                     "path": path_prop(),
                     "output": { "type": "string", "description": "Project-relative output path, e.g. exports/part.stl" },
                     "defines": defines_prop(),
-                    "t": t_prop()
+                    "t": t_prop(),
+                    "timeout_s": timeout_prop()
                 },
                 "required": ["output"]
             })
@@ -244,6 +259,7 @@ impl Tools {
                 .tempdir()?,
             control: None,
             run: None,
+            progress: None,
         })
     }
 
@@ -257,6 +273,11 @@ impl Tools {
     pub fn with_run(mut self, run: Option<u64>) -> Self {
         self.run = run;
         self
+    }
+
+    /// Report OpenSCAD's running time during the next calls (MCP progress).
+    pub fn set_progress(&mut self, progress: Option<ProgressFn>) {
+        self.progress = progress;
     }
 
     fn notify_app(&self, request: &ControlRequest) -> Option<ControlReply> {
@@ -360,8 +381,24 @@ impl Tools {
         Ok(path)
     }
 
+    fn run_control(&self, args: &Value) -> Result<RunControl, String> {
+        let timeout = match args.get("timeout_s") {
+            None | Some(Value::Null) => DEFAULT_TIMEOUT_S,
+            Some(v) => v
+                .as_f64()
+                .filter(|s| *s >= 1.0)
+                .map(|s| (s.ceil() as u64).min(MAX_TIMEOUT_S))
+                .ok_or("timeout_s must be a number of seconds, at least 1")?,
+        };
+        Ok(RunControl {
+            cancel: None,
+            timeout: Some(std::time::Duration::from_secs(timeout)),
+            progress: self.progress.clone(),
+        })
+    }
+
     fn request(&self, args: &Value) -> Result<Request, String> {
-        let mut req = Request::new(self.scad_file(args)?);
+        let mut req = Request::new(self.scad_file(args)?).with_control(self.run_control(args)?);
         if let Some(defines) = args.get("defines").and_then(Value::as_object) {
             for (name, v) in defines {
                 let value: ParamValue = serde_json::from_value(v.clone())
@@ -413,7 +450,8 @@ impl Tools {
             && let Ok(engine) = self.engine()
         {
             let engine = engine.clone();
-            match engine.check(&Request::new(path), self.scratch.path()) {
+            let req = Request::new(path).with_control(self.run_control(&Value::Null)?);
+            match engine.check(&req, self.scratch.path()) {
                 Ok(r) => out.push(Content::Text(format_diagnostics(&r.diagnostics, r.success))),
                 Err(e) => out.push(Content::Text(format!("syntax check failed to run: {e}"))),
             }
@@ -533,9 +571,13 @@ impl Tools {
         let mut notes = Vec::new();
         let mut images = Vec::new();
         let mut diagnostics: Option<Vec<Diagnostic>> = None;
+        let mut hint = String::new();
         for (camera, result) in results {
             match result {
                 Ok(out) => {
+                    if hint.is_empty() {
+                        hint = timeout_hint(&out);
+                    }
                     if diagnostics.is_none() {
                         diagnostics = Some(out.diagnostics.clone());
                     }
@@ -558,6 +600,12 @@ impl Tools {
             let diag = diagnostics
                 .map(|d| format_diagnostics(&d, false))
                 .unwrap_or_default();
+            if !hint.is_empty() {
+                return Err(format!(
+                    "no snapshot could be rendered ({}).\n{diag}{hint}",
+                    notes.join(", ")
+                ));
+            }
             return Err(format!(
                 "no snapshot could be rendered ({}).\n{diag}\nOn headless Linux, OpenSCAD needs a display; install xvfb (xvfb-run).",
                 notes.join(", ")
@@ -617,6 +665,9 @@ impl Tools {
             "success": out.success,
             "duration_ms": out.duration_ms,
         });
+        if let Some(reason) = out.interrupted {
+            report["interrupted"] = json!(reason);
+        }
         if out.success {
             match Mesh::load_stl(&out_path) {
                 Ok(mesh) => {
@@ -631,9 +682,10 @@ impl Tools {
             }
         }
         let text = format!(
-            "{}\n{}",
+            "{}\n{}{}",
             pretty(&report),
-            format_diagnostics(&out.diagnostics, out.success)
+            format_diagnostics(&out.diagnostics, out.success),
+            timeout_hint(&out)
         );
         if out.success {
             Ok(vec![Content::Text(text)])
@@ -660,7 +712,7 @@ impl Tools {
             },
             out.duration_ms,
             format_diagnostics(&out.diagnostics, out.success)
-        );
+        ) + &timeout_hint(&out);
         if out.success {
             Ok(vec![Content::Text(text)])
         } else {
@@ -750,6 +802,17 @@ impl Tools {
 
 fn pretty<T: serde::Serialize>(v: &T) -> String {
     serde_json::to_string_pretty(v).unwrap_or_else(|e| e.to_string())
+}
+
+/// What an agent can do about a run that hit its time limit.
+fn timeout_hint(out: &RenderOutput) -> String {
+    if out.interrupted == Some(Interrupt::TimedOut) {
+        "\nThe model may be too complex to finish in time: render a single part, lower $fn, \
+         or call again with a larger timeout_s."
+            .to_owned()
+    } else {
+        String::new()
+    }
 }
 
 fn format_diagnostics(diags: &[Diagnostic], success: bool) -> String {
