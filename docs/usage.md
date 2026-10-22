@@ -114,6 +114,10 @@ itself.
 | Settings… | `Ctrl/Cmd-,` | Edit → Preferences |
 | Save | `Ctrl/Cmd-S` | File → Save (also triggers preview, as with OpenSCAD's auto-reload) |
 
+Only the newest render runs: saving, `F6` or an agent edit while OpenSCAD is
+still rendering stops the outdated render and starts over with the new
+source, so stale renders don't compete for the CPU.
+
 Exports use the same file as the preview: while you edit a library that the
 main file pulls in, `F7` exports the main design. The STL is written next to
 it. Without a native file dialog (no xdg-desktop-portal on Linux),
