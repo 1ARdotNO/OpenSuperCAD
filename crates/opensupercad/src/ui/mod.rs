@@ -9,6 +9,7 @@ mod picker;
 mod preview;
 mod report;
 mod settings_panel;
+mod snapshot_viewer;
 mod updates;
 mod workspace;
 
