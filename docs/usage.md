@@ -86,8 +86,10 @@ commit to share them:
 3. The agent edits the `.scad` files, renders, and **looks at snapshots from
    several angles** through the built-in MCP tools before reporting back.
    You see each tool call and the snapshots it took, and the preview updates
-   live as files change. Unsaved edits are saved before the agent's tools
-   run, so the agent always works on what you see.
+   live as files change. Click a snapshot to open it large: zoom with the
+   buttons or Ctrl/Cmd-scroll, and **Save…** it as a PNG. Unsaved edits are
+   saved before the agent's tools run, so the agent always works on what you
+   see.
 4. Iterate: *"make the walls 3 mm"*, *"add a fillet where the arm meets the
    plate"*. For simple tweaks the agent uses the customizer parameters
    directly.

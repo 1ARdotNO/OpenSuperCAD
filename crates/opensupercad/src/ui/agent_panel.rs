@@ -13,6 +13,7 @@ use gpui_kit::component::scroll::ScrollableElement;
 use gpui_kit::component::select::{Select, SelectEvent, SelectState};
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::TextView;
+use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::{
     ActiveTheme, Disableable, IconName, IndexPath, Selectable, Sizable, WindowExt, h_flex, v_flex,
 };
@@ -21,6 +22,7 @@ use gpui_kit::*;
 use osc_agent::{AgentEvent, ConfigOption, PermissionChoice, Registry, SlashCommand, ToolStatus};
 use osc_project::{Role, Store, Thread, ThreadSummary};
 
+use super::snapshot_viewer::SnapshotViewer;
 use crate::session::{Options, Session, SessionEvent, Status};
 
 pub enum AgentPanelEvent {
@@ -1791,11 +1793,27 @@ impl AgentPanel {
                 }
                 Role::System if decode_snapshots(&m.text).is_some() => {
                     let (file, images) = decode_snapshots(&m.text).unwrap_or_default();
+                    let save_dir = self
+                        .project
+                        .as_ref()
+                        .map(|(root, ..)| root.clone())
+                        .or_else(dirs::home_dir)
+                        .unwrap_or_default();
                     let mut grid = h_flex().gap_2().flex_wrap();
-                    for (label, path) in images {
+                    for (jx, (label, path)) in images.into_iter().enumerate() {
+                        let open = (file.clone(), label.clone(), path.clone(), save_dir.clone());
                         grid = grid.child(
                             v_flex()
+                                .id(SharedString::from(format!("snapshot-{ix}-{jx}")))
                                 .gap_0p5()
+                                .cursor_pointer()
+                                .tooltip(|window, cx| {
+                                    Tooltip::new("Open snapshot").build(window, cx)
+                                })
+                                .on_click(move |_, window, cx| {
+                                    let (file, label, path, dir) = open.clone();
+                                    SnapshotViewer::open(file, label, path, dir, window, cx);
+                                })
                                 .child(
                                     img(path)
                                         .w(px(168.))
