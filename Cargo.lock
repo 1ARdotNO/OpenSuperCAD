@@ -111,12 +111,13 @@ dependencies = [
 
 [[package]]
 name = "agent-client-protocol-schema"
-version = "1.15.1"
+version = "1.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b2316d2cd561917bc2c16e3c64771c77e24363b56d40b58fdad091d02059992"
+checksum = "650e76dae0c8d3e772acb35184e6dd4defa0e15e130c96bf4c4586597f1f2d91"
 dependencies = [
  "anyhow",
  "derive_more",
+ "indexmap 2.14.2",
  "serde",
  "serde_json",
  "serde_with",
